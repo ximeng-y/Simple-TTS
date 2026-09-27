@@ -19,7 +19,8 @@ Simple TTS 是一个轻量级的 Windows 桌面文本转语音工具，当前版
 | 模块 | 职责 |
 | --- | --- |
 | `catalog.py` | 纯数据：供应商/模型/预置音色/格式/风格标签，界面与后端共用 |
-| `state.py` | 内存中的配置与各模型草稿，退出即丢，不落盘；并提供 `userdata` 目录的定位 |
+| `state.py` | 内存中的配置与各模型草稿，并提供 `userdata` 目录与配置文件路径的定位 |
+| `storage.py` | 配置读写：`userdata/settings.json`，含 API Key 的 DPAPI 加解密 |
 | `providers/base.py` | `TTSProvider` 抽象与 `SynthesisError` |
 | `providers/mimo.py` | MiMo 实现，只依赖标准库，不 import Qt |
 | `synth.py` | 后台合成线程，结果经 Qt 信号回主线程 |
@@ -36,6 +37,7 @@ Simple TTS 是一个轻量级的 Windows 桌面文本转语音工具，当前版
 - **HTTP 调用**：标准库 `urllib`，调用 Chat Completions 非流式接口（`stream` 固定为 `false`），不引入 openai SDK。响应中 `choices[0].message.audio.data` 为 base64 编码的完整音频，`base64.b64decode` 后即为可落盘的音频字节
 - **音频格式**：请求参数 `audio.format` 取 `wav` 或 `mp3`（不支持 pcm16 裸流，不用于流式场景）。取 `wav` 时服务端返回成型 WAV 文件，无需自行补写 WAV 头；取 `mp3` 时返回成型 MP3 文件
 - **音频播放**：播放已落盘的本地音频文件，用 `ctypes` 调用 MCI（`mciSendStringW`），`open ... type mpegvideo` 加载后 wav 与 mp3 共用一套命令，零第三方依赖即可获得播放、停止、音量、播放位置与时长。MCI 没有结束回调，播放中由 `App` 用一个 100ms 定时器轮询 `status mode` 发现播放结束并停止轮询
+- **配置持久化**：配置存 `userdata/settings.json`（标准库 `json`，临时文件 + `os.replace` 覆写），启动读入、点设置页「确定」与关窗时写出。API Key 不存明文：整份 key 表经 `ctypes` 调 Windows DPAPI（`CryptProtectData`）按当前登录用户加密后以 base64 存入，换 Windows 账户或换机器都读不出来 —— 也无需为此引入第三方库。各模型草稿（用户正在写的正文/描述）不落盘，属会话内容而非配置
 - **线程模型**：合成是阻塞 HTTP 调用，放在 `threading.Thread`（daemon）里执行，结果经 Qt 信号回主线程；线程为 daemon，请求未返回时关窗也能正常退出，`closeEvent` 只摘掉回调
 - **第三方依赖**：运行期依赖 `PySide6-Essentials`（LGPLv3，装在项目内 `.venv/`，不入版本库），开发期另使用 PyInstaller 打包；分发时用 PyInstaller `--onedir` 模式（不要将 Qt 二进制压进单文件，用户需能替换 Qt 二进制是 LGPLv3 的要求），产出目录内附 Qt/PySide6 的许可文件
 
@@ -45,14 +47,16 @@ Simple TTS 是一个轻量级的 Windows 桌面文本转语音工具，当前版
 
 ```
 userdata/
-  output/   合成的音频，默认保存目录（settings 里可改）
+  output/         合成的音频，默认保存目录（settings 里可改）
+  settings.json   配置。没改过设置就不存在；api_keys_encrypted 是 DPAPI 密文
 ```
 
 目录跟着程序走，整个软件连同产物在一个文件夹内，拷贝或删除互不影响；`userdata/` 已进 `.gitignore`。定位程序目录时区分两种形态：源码运行取包目录的上一级，打包成 exe 后取 `sys.executable` 所在目录 —— 冻结后 `__file__` 指向 PyInstaller 解出的临时目录（onefile 模式下随进程结束被删除），不能用来放数据。
 
 ## 已知边界
 
-- 配置只存在于内存，重启回到默认值；「保留合成历史记录」勾选项尚无对应功能
+- 配置存在 `userdata/settings.json`，重启后自动读回；其中 API Key 按当前 Windows 账户加密，换账户或把 `userdata/` 拷到别的机器需重新填写。「保留合成历史记录」勾选项尚无对应功能
+- 配置文件的容错口径是「宁可少读，不可起不来」：文件缺失、JSON 损坏、字段类型不符、供应商/模型 id 已不存在，一律回落默认值或忽略该项，不弹窗不报错。写盘失败（目录只读等）弹一次提示，软件继续可用，只是本次改动重启后丢失
 - 同名文件默认不覆盖也不询问，自动追加 `_2`、`_3`；文件名模式含 `{index}` 时改为递增序号。勾选设置里的「覆盖同名文件前确认」后改为逐次弹窗询问（覆盖 / 另存为副本 / 取消，只问一次）
 - 请求无法中断，合成中途关窗会直接放弃这次请求
 

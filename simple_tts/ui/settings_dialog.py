@@ -3,7 +3,9 @@
 顶层页序与菜单「设置」中各项一一对应：通用 / 供应商 / API KEY。
 「供应商」页决定当前启用哪一家，「API KEY」页则按供应商分标签各存一份 Key。
 
-配置只存在于内存中的 AppState，点「确定」写回后即生效，但不落盘；重启回到默认值。
+配置存在内存中的 AppState 里，点「确定」写回后即生效，并随即存进
+userdata/settings.json；重启后自动读回。API Key 经 DPAPI 用当前 Windows
+账户加密后存放，换账户或换机器都读不出来，需要重新填写。
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ from PySide6.QtWidgets import (
 from .. import catalog
 from . import theme
 
-_NOTE = "配置只保存在本次运行的内存中，不会写入磁盘，重启后回到默认值。"
+_NOTE = "配置更改会在重启后保留，存于程序目录下的 userdata/。"
 
 # 顶层页的 key 与标签，页序即菜单「设置」里的展示顺序
 _PAGES = (("general", "  通用  "), ("provider", "  供应商  "), ("api", "  API KEY  "))
@@ -216,7 +218,12 @@ class SettingsDialog(QDialog):
         self._show_key_checks[provider["id"]] = show_check
         layout.addWidget(show_check, 3, 1, Qt.AlignLeft)
 
-        layout.addWidget(theme.hint(tab, "仅保存在本次运行的内存中"), 4, 1, Qt.AlignLeft)
+        layout.addWidget(
+            theme.hint(tab, "以当前 Windows 账户加密后保存，换账户需重新填写"),
+            4,
+            1,
+            Qt.AlignLeft,
+        )
         layout.setRowStretch(5, 1)
         return tab
 

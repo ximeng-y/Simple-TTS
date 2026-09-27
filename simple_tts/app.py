@@ -22,10 +22,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, catalog, output
+from . import __version__, catalog, output, storage
 from .player import AudioPlayer
 from .providers import MiMoProvider
-from .state import AppState
+from .state import AppState, settings_path
 from .synth import SynthesisTask
 from .ui import theme
 from .ui.config_panel import ConfigPanel
@@ -71,6 +71,8 @@ class App(QMainWindow):
         super().__init__()
 
         self.state = AppState()
+        # 上次运行留下的配置，读在装机之前：下面的界面构建与载入都是按它来摆的
+        storage.load(settings_path(), self.state)
         self.player = AudioPlayer()
         self.provider = MiMoProvider()
 
@@ -222,7 +224,7 @@ class App(QMainWindow):
         self._sync_sing_ui()
 
     def _save_draft(self) -> None:
-        """把界面上的输入写回当前模型的草稿（仅内存）。"""
+        """把界面上的输入写回当前模型的草稿（仅内存，不进配置文件）。"""
         draft = self.state.draft()
         draft.style_prompt = self.text_panel.get_style_prompt()
         draft.text = self.text_panel.get_text()
@@ -408,6 +410,8 @@ class App(QMainWindow):
             if dialog.provider_changed:
                 self.on_provider_change(self.state.provider_id)
             self.config_panel.apply_settings()
+            # 设置页改完就落盘，不等关窗：用户点「确定」的这一刻配置已经定下来了
+            self._save_settings()
 
     def on_open_docs(self) -> None:
         webbrowser.open(catalog.DOC_URL)
@@ -422,6 +426,17 @@ class App(QMainWindow):
         )
 
     # ================================================================ 内部
+
+    def _save_settings(self) -> None:
+        """把 state 里的配置写进 userdata/settings.json。
+
+        写不进去（目录只读、被判毒拦下等）不该拦着用户用软件，只提示一次；
+        提示是模态的，用户点掉之后就回到正常流程。
+        """
+        try:
+            storage.save(settings_path(), self.state)
+        except OSError as exc:
+            self._warn(f"配置无法保存，本次改动重启后会丢失：\n{exc}")
 
     def _resolve_overwrite(self, path: str) -> str:
         """落盘发现同名时询问用户，返回 output 里约定的三种处置之一。
@@ -455,6 +470,11 @@ class App(QMainWindow):
     # ================================================================ 退出
 
     def closeEvent(self, event) -> None:
+        # 右侧配置区的目录/格式/文件名模式只在 commit 时收回 state，
+        # 关窗前先收一次，否则这两处改动会写在配置之外
+        self._save_draft()
+        self._save_settings()
+
         if self._task is not None:
             # 请求阻塞在 socket 上无法中断，只能让它随进程一起结束（线程是 daemon），
             # 这里先把回调摘掉，避免结果回来时窗口已经在销毁中

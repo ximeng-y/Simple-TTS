@@ -310,7 +310,11 @@ class ConfigPanel(QScrollArea):
         self._autoplay_check.setChecked(self._state.auto_play)
 
     def commit(self) -> None:
-        """把控件值写回 state（仅内存）。切模型前与点合成前调用。"""
+        """把控件值写回 state。切模型前与点合成前调用；关窗时也会收一次。
+
+        本面板的项（格式/目录/文件名模式）都要进配置文件，因此不能只在内存里
+        待着 —— 由 App 在关窗时调一次本方法再落盘。
+        """
         draft = self._state.draft()
         model = self._state.model
 

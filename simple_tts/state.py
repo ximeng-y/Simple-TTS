@@ -1,6 +1,8 @@
 """应用状态。
 
-配置与各模型草稿只存在于内存中，退出即丢，不写入磁盘。
+配置在内存中就是这里的一份 AppState；退出时由 App 写进
+``userdata/settings.json``（读写见 storage.py），下次启动读回。
+但各模型草稿只在内存里，不落盘。
 """
 
 from __future__ import annotations
@@ -28,11 +30,16 @@ def userdata_dir() -> str:
     """程序自用的数据目录。所有需要落盘的东西都收敛在这里。
 
     跟着程序走而不是跟着系统用户目录走，是为了让整个软件连同产物都在一个
-    文件夹内，拷贝/删除互不影响。目前只用到 output/ 子目录；日后若要落盘
-    配置或合成历史，各自再开一个子目录。目录按需创建（见 output.save_audio），
+    文件夹内，拷贝/删除互不影响。里面目前有两样：output/ 放合成的音频，
+    settings.json 放配置。目录按需创建（见 output.save_audio、storage.save），
     不在这里做任何磁盘操作。
     """
     return os.path.join(_program_dir(), "userdata")
+
+
+def settings_path() -> str:
+    """配置文件的完整路径。"""
+    return os.path.join(userdata_dir(), "settings.json")
 
 
 def _default_output_dir() -> str:
@@ -64,7 +71,11 @@ class ModelDraft:
 
 @dataclass
 class AppState:
-    """全局配置。除 drafts / api_keys 外均对应「设置」页里的项。"""
+    """全局配置。除 drafts 外均对应「设置」页里的项，且都写进配置文件。
+
+    字段名即配置文件里的键名，落盘范围由 storage.py 的两份键清单决定：
+    这里新加字段后要在那边登记，否则读得到、存不下。
+    """
 
     # ---- 供应商与模型
     # 当前启用的供应商。接入第二家后由「设置 → 供应商」页切换；
@@ -83,10 +94,11 @@ class AppState:
     keep_history: bool = False
     confirm_overwrite: bool = True
 
-    # ---- API Key：按供应商 id 各存一份，切换供应商不会互相覆盖
+    # ---- API Key：按供应商 id 各存一份，切换供应商不会互相覆盖。
+    # 落盘时整份经 DPAPI 加密，不以明文写入 settings.json（见 storage.py）
     api_keys: dict[str, str] = field(default_factory=dict)
 
-    # ---- 各模型的输入草稿
+    # ---- 各模型的输入草稿。唯一不落盘的一项：属于正在写的内容而非配置
     drafts: dict[str, ModelDraft] = field(default_factory=dict)
 
     @property
