@@ -4,59 +4,87 @@
 https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/audio/speech-synthesis-v2.5
 
 界面上的可配置项与文档中的请求参数一一对应：
-- model              -> MODELS
+- provider           -> PROVIDERS（基地址、可用模型集合）
+- model              -> PROVIDERS[*]["models"]
 - audio.voice        -> PRESET_VOICES / SAMPLE_MIME
 - audio.format       -> FORMATS
 - user 消息           -> DIRECTOR_TEMPLATE、OPENING_STYLES（自然语言/标签两种控制）
 - assistant 消息      -> INLINE_TAGS
 """
 
-# ---------------------------------------------------------------- 模型
+# ---------------------------------------------------------------- 供应商
 
-# tone_source 决定右侧「音色」区展示哪一块内容：
+# 一个供应商 = 一套基地址 + 一组可用模型。当前只有 MIMO，全部硬编码；
+# 接入第二家时在列表里追加一项即可，界面（顶部模型列表、设置页）都从这里读。
+#
+# 模型字典里 tone_source 决定右侧「音色」区展示哪一块内容：
 #   "preset"  -> 预置音色下拉
 #   "design"  -> 无音色控件，改由 user 消息（音色描述）决定
 #   "clone"   -> 音频样本文件选择
-MODELS = [
+PROVIDERS = [
     {
-        "id": "mimo-v2.5-tts",
-        "label": "预置音色  mimo-v2.5-tts",
-        "short": "预置音色",
-        "tone_source": "preset",
-        "supports_sing": True,
-        "supports_optimize": False,
-        "requires_style_prompt": False,
-        "desc": "使用预置精品音色合成，支持唱歌模式；不支持音色设计与音色复刻。",
-    },
-    {
-        "id": "mimo-v2.5-tts-voicedesign",
-        "label": "音色设计  mimo-v2.5-tts-voicedesign",
-        "short": "音色设计",
-        "tone_source": "design",
-        "supports_sing": False,
-        "supports_optimize": True,
-        "requires_style_prompt": True,
-        "desc": "通过文本描述定制音色，无需预置音色或音频样本；不支持唱歌模式。",
-    },
-    {
-        "id": "mimo-v2.5-tts-voiceclone",
-        "label": "音色复刻  mimo-v2.5-tts-voiceclone",
-        "short": "音色复刻",
-        "tone_source": "clone",
-        "supports_sing": False,
-        "supports_optimize": False,
-        "requires_style_prompt": False,
-        "desc": "基于音频样本复刻任意音色；不支持唱歌模式与音色设计。",
+        "id": "mimo",
+        "name": "MIMO",
+        "desc": "小米 MiMo 语音合成，OpenAI Chat Completions 风格接口",
+        "base_url": "https://api.xiaomimimo.com/v1",
+        "models": [
+            {
+                "id": "mimo-v2.5-tts",
+                "label": "预置音色  mimo-v2.5-tts",
+                "short": "预置音色",
+                "tone_source": "preset",
+                "supports_sing": True,
+                "supports_optimize": False,
+                "requires_style_prompt": False,
+                "desc": "使用预置精品音色合成，支持唱歌模式；不支持音色设计与音色复刻。",
+            },
+            {
+                "id": "mimo-v2.5-tts-voicedesign",
+                "label": "音色设计  mimo-v2.5-tts-voicedesign",
+                "short": "音色设计",
+                "tone_source": "design",
+                "supports_sing": False,
+                "supports_optimize": True,
+                "requires_style_prompt": True,
+                "desc": "通过文本描述定制音色，无需预置音色或音频样本；不支持唱歌模式。",
+            },
+            {
+                "id": "mimo-v2.5-tts-voiceclone",
+                "label": "音色复刻  mimo-v2.5-tts-voiceclone",
+                "short": "音色复刻",
+                "tone_source": "clone",
+                "supports_sing": False,
+                "supports_optimize": False,
+                "requires_style_prompt": False,
+                "desc": "基于音频样本复刻任意音色；不支持唱歌模式与音色设计。",
+            },
+        ],
     },
 ]
 
+DEFAULT_PROVIDER_ID = PROVIDERS[0]["id"]
 
-def model_by_id(model_id: str) -> dict:
-    """按 model id 取模型定义，未知 id 回落到第一个模型。"""
-    for model in MODELS:
+
+def provider_by_id(provider_id: str) -> dict:
+    """按 id 取供应商定义，未知 id 回落到第一个。"""
+    for provider in PROVIDERS:
+        if provider["id"] == provider_id:
+            return provider
+    return PROVIDERS[0]
+
+
+def models_of(provider_id: str) -> list[dict]:
+    """某供应商下可用的模型列表。"""
+    return provider_by_id(provider_id)["models"]
+
+
+def model_by_id(provider_id: str, model_id: str) -> dict:
+    """按 provider + model id 取模型定义，未知 id 回落到该供应商的第一个模型。"""
+    models = models_of(provider_id)
+    for model in models:
         if model["id"] == model_id:
             return model
-    return MODELS[0]
+    return models[0]
 
 
 # ---------------------------------------------------------------- 预置音色
@@ -159,4 +187,3 @@ VOICE_DESC_HINTS = [
 # ---------------------------------------------------------------- 外部链接
 
 DOC_URL = "https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/audio/speech-synthesis-v2.5"
-DEFAULT_API_BASE = "https://api.xiaomimimo.com/v1"

@@ -32,7 +32,7 @@ class TextPanel(QWidget):
     def __init__(self, parent, on_text_change) -> None:
         super().__init__(parent)
         self._on_text_change = on_text_change
-        self._model = catalog.MODELS[0]
+        self._model = catalog.PROVIDERS[0]["models"][0]
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(theme.PAD_L, theme.PAD, theme.PAD, theme.PAD)

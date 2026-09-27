@@ -60,17 +60,14 @@ class App(QMainWindow):
     def _build_menu(self) -> None:
         menubar = self.menuBar()
 
-        file_menu = menubar.addMenu("文件")
-        settings_action = QAction("设置…", self)
-        settings_action.setShortcut(QKeySequence("Ctrl+,"))
-        settings_action.triggered.connect(self.on_settings)
-        file_menu.addAction(settings_action)
-
-        file_menu.addSeparator()
-
-        quit_action = QAction("退出", self)
-        quit_action.triggered.connect(self.close)
-        file_menu.addAction(quit_action)
+        # 顶层「设置」菜单：三项都是设置页里的页面，点哪项直接停在那一页
+        settings_menu = menubar.addMenu("设置")
+        for label, page in (("通用…", "general"), ("供应商…", "provider"), ("API KEY…", "api")):
+            action = QAction(label, self)
+            action.triggered.connect(lambda _checked=False, name=page: self.on_settings(name))
+            settings_menu.addAction(action)
+        # Ctrl+, 是「打开设置」的惯例快捷键；这里没有单一设置项，给到默认页
+        settings_menu.actions()[0].setShortcut(QKeySequence("Ctrl+,"))
 
         help_menu = menubar.addMenu("帮助")
         docs_action = QAction("API 使用文档", self)
@@ -87,7 +84,7 @@ class App(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.header = Header(central, on_model_change=self.on_model_change)
+        self.header = Header(central, self.state, on_model_change=self.on_model_change)
         layout.addWidget(self.header)
 
         # 中栏：左文本弹性伸缩，右配置固定宽度
@@ -153,6 +150,18 @@ class App(QMainWindow):
         """顶部切换模型：先存旧草稿，再载入新模型的配置与文本。"""
         self._save_draft()
         self.state.model_id = model_id
+        self._load_model_into_ui()
+
+    def on_provider_change(self, provider_id: str) -> None:
+        """设置页切换了启用的供应商：换掉顶部模型列表并重载界面。
+
+        不同供应商支持的模型完全不同，旧模型 id 多半在新供应商下不存在，
+        state.model 会自动回落到新供应商的第一个模型。
+        """
+        self._save_draft()
+        self.state.provider_id = provider_id
+        self.state.model_id = self.state.model["id"]
+        self.header.reload_models()
         self._load_model_into_ui()
 
     def _load_model_into_ui(self) -> None:
@@ -228,9 +237,11 @@ class App(QMainWindow):
 
     # ================================================================ 菜单动作
 
-    def on_settings(self) -> None:
-        dialog = SettingsDialog(self, self.state)
+    def on_settings(self, page: str = "general") -> None:
+        dialog = SettingsDialog(self, self.state, page=page)
         if dialog.exec() == QDialog.Accepted:
+            if dialog.provider_changed:
+                self.on_provider_change(self.state.provider_id)
             self.config_panel.apply_settings()
 
     def on_open_docs(self) -> None:

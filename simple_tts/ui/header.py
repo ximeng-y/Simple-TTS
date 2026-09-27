@@ -1,17 +1,21 @@
-"""顶部工具条：模型选择 + 当前模型说明。"""
+"""顶部工具条：模型选择 + 当前模型说明。
+
+模型列表来自当前供应商（见 AppState.provider），换供应商后由 App 调用
+``reload_models()`` 重建下拉项。
+"""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QWidget
 
-from .. import catalog
 from . import theme
 
 
 class Header(QWidget):
-    def __init__(self, parent, on_model_change) -> None:
+    def __init__(self, parent, state, on_model_change) -> None:
         super().__init__(parent)
+        self._state = state
         self._on_model_change = on_model_change
 
         layout = QHBoxLayout(self)
@@ -20,11 +24,10 @@ class Header(QWidget):
 
         layout.addWidget(theme.title(self, "模型"))
 
-        # 模型 id 与下拉项文本分开维护，避免展示文案变化时失配
-        self._labels = [model["label"] for model in catalog.MODELS]
+        # 下拉项与 state.model_id 分开维护：下拉只按本供应商的模型顺序建，
+        # 选中哪一项始终回到 state 里按 id 判断，避免两边下标失配
         self.model_box = QComboBox(self)
         self.model_box.setEditable(False)
-        self.model_box.addItems(self._labels)
         self.model_box.setMinimumWidth(280)
         self.model_box.currentIndexChanged.connect(self._handle_select)
         layout.addWidget(self.model_box)
@@ -33,29 +36,44 @@ class Header(QWidget):
         self.desc_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         layout.addWidget(self.desc_label, 1)
 
-        self.refresh_desc()
+        self.reload_models()
 
     # ---------------------------------------------------------------- 对外
 
     @property
     def model_id(self) -> str:
-        return catalog.MODELS[self.model_box.currentIndex()]["id"]
+        return self._state.model_id
 
     def set_model_id(self, model_id: str) -> None:
         """按 id 选中模型，不触发回调。"""
-        for index, model in enumerate(catalog.MODELS):
-            if model["id"] == model_id:
-                self.model_box.blockSignals(True)
-                self.model_box.setCurrentIndex(index)
-                self.model_box.blockSignals(False)
-                self.refresh_desc()
-                return
+        self._select(model_id)
+        self.refresh_desc()
+
+    def reload_models(self) -> None:
+        """按当前供应商重建下拉项，并选中 state 里记着的模型。"""
+        models = self._state.provider["models"]
+        self.model_box.blockSignals(True)
+        self.model_box.clear()
+        for model in models:
+            self.model_box.addItem(model["label"], model["id"])
+        self.model_box.blockSignals(False)
+
+        self._select(self._state.model_id)
+        self.refresh_desc()
 
     def refresh_desc(self) -> None:
-        self.desc_label.setText(catalog.model_by_id(self.model_id)["desc"])
+        self.desc_label.setText(self._state.model["desc"])
 
     # ---------------------------------------------------------------- 内部
 
+    def _select(self, model_id: str) -> None:
+        index = self.model_box.findData(model_id)
+        if index < 0:
+            return
+        self.model_box.blockSignals(True)
+        self.model_box.setCurrentIndex(index)
+        self.model_box.blockSignals(False)
+
     def _handle_select(self, _index: int) -> None:
         self.refresh_desc()
-        self._on_model_change(self.model_id)
+        self._on_model_change(self.model_box.currentData())
