@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -72,6 +73,10 @@ class StylePanel(QGroupBox):
         need = max(page.layout().minimumSize().height() for page in pages)
         for page in pages:
             page.setMinimumHeight(need)
+
+        # 本面板的尺寸由外层滚动区外的布局钉死（见 App._build_layout）：这里给出内容全高，
+        # 且不让策略里的可伸缩部分参与分配，免得富余空间被面板吃掉后半截变成空白。
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
 
     # ================================================================ 开头风格
 

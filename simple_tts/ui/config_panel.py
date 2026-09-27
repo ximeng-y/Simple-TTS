@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -35,7 +35,12 @@ _PAGE_ORDER = ("preset", "design", "clone")
 
 
 class ConfigPanel(QScrollArea):
-    """参数区，内容超出窗口高度时可纵向滚动。
+    """参数区，内容超出可用高度时可纵向滚动。
+
+    高度不能只按自身控件的尺寸提示走：QScrollArea 会按「24 行文本高」给高度封顶
+    （本面板内容恰好超过该上限），而里面的换行提示要折行几行，也只有宽度定下来
+    才算得准。这里改成按配置区的名义宽度重算一次内容高度，默认窗口下就与内容等高，
+    不会一开局就滚动；窗口压矮之后才由滚动条接管。
 
     与 App 的约定：
       - on_sing_toggle(checked) 唱歌模式勾选变化时回调，由 App 去改文本框内容
@@ -61,6 +66,24 @@ class ConfigPanel(QScrollArea):
         layout.addWidget(self._build_voice_section(), 1)
         layout.addWidget(self._build_output_section(), 1)
         self.setWidget(root)
+
+    # ================================================================ 尺寸
+
+    def sizeHint(self) -> QSize:
+        """宽度给足配置区该占的宽度，高度按内容实算。
+
+        「音色」块的高度随所选模型变化（预置音色四行、音色设计二十来行），
+        整块内容的高度也只有在宽度定下来之后才算得准（换行提示折几行看宽度），
+        所以直接拿内容布局在视口宽度下的 heightForWidth，而不是它那份
+        没算折行的尺寸提示。
+        """
+        layout = self.widget().layout()
+        width = self.viewport().width()
+        if width <= 1:
+            # 首帧还没布过局，视口宽度为 0：按配置区宽度留出滚动条的位置估一个
+            width = max(theme.RIGHT_COL_W - self.verticalScrollBar().sizeHint().width(), theme.PAD)
+        height = layout.heightForWidth(width) if layout.hasHeightForWidth() else layout.sizeHint().height()
+        return QSize(theme.RIGHT_COL_W, height)
 
     # ================================================================ 构建
 
@@ -260,6 +283,9 @@ class ConfigPanel(QScrollArea):
         self._dir_edit.setText(self._state.output_dir)
         self._pattern_edit.setText(self._state.filename_pattern)
         self._autoplay_check.setChecked(self._state.auto_play)
+
+        # 音色块随模型换内容，高度跟着变，得让布局重新问一次本面板要占多高
+        self.updateGeometry()
 
     def apply_settings(self) -> None:
         """设置页确认后，把与设置页重叠的项同步到控件。"""

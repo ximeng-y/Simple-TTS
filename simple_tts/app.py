@@ -36,9 +36,11 @@ from .ui.style_panel import StylePanel, StylePanelScrollArea
 from .ui.text_panel import TextPanel
 
 _WINDOW_TITLE = "Simple TTS"
-_DEFAULT_SIZE = (1100, 880)
-# 最小宽度下限（纯观感取值）；高度不写死，由布局实际需求算出，
-# 见 App._build_layout 末尾 —— 字号/缩放不同，写死的高度会让中栏先被裁切。
+# 默认宽度写死，高度按布局实际需求算（见 App._default_size）；
+# 高度不写死是因为窗口一开就要能装下中栏内容与整块风格辅助区 ——
+# 内容高度随字号/系统缩放浮动，写死的数值只会让某个尺寸下开局就出现滚动条。
+_DEFAULT_WIDTH = 1100
+# 最小宽度下限（纯观感取值）
 _MIN_WIDTH = 1000
 _RIGHT_COL_W = theme.RIGHT_COL_W
 
@@ -79,10 +81,10 @@ class App(QMainWindow):
         self._current_file: str | None = None
 
         self.setWindowTitle(_WINDOW_TITLE)
-        self.resize(*_DEFAULT_SIZE)
 
         self._build_menu()
         self._build_layout()
+        self.resize(*self._default_size())
         self._bind_shortcuts()
         self._load_model_into_ui()
 
@@ -133,13 +135,12 @@ class App(QMainWindow):
         middle.addWidget(self.config_panel)
         middle.setStretchFactor(0, 3)
         middle.setStretchFactor(1, 0)
-        middle.setSizes([_DEFAULT_SIZE[0] - _RIGHT_COL_W, _RIGHT_COL_W])
-        # 中栏高度固定为其内容高度，窗口上下调整时伸缩全部由风格辅助面板吸收，
-        # 否则文本编辑区会被优先压缩，界面上下失衡
-        middle.setFixedHeight(middle.sizeHint().height())
-        layout.addWidget(middle)
+        middle.setSizes([_DEFAULT_WIDTH - _RIGHT_COL_W, _RIGHT_COL_W])
+        # 中栏是上半部分的弹性区：默认状态下它拿走全部多余高度（进入「合成文本」框），
+        # 窗口变矮时再被压回去，最多压到两个文本框齐平（TextPanel 里的最小高度）。
+        layout.addWidget(middle, 1)
 
-        # 风格辅助面板：widgetResizable(False) 下滚动区不会代管面板尺寸，
+        # 风格辅助面板：widgetResizable(False) 下滚动区不代管面板尺寸，
         # 这里显式把面板钉在全高，滚动区的最低高度给到半高 ——
         # 于是「已压缩即可滚动、压到一半为止」两件事各由一句代码负责。
         self.style_panel = StylePanel(
@@ -155,7 +156,7 @@ class App(QMainWindow):
         self.style_wrap.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.style_wrap.setWidget(self.style_panel)
         self.style_wrap.setMinimumHeight(full // 2)
-        layout.addWidget(self.style_wrap, 1)
+        layout.addWidget(self.style_wrap)
 
         self.player_bar = PlayerBar(
             central,
@@ -169,10 +170,22 @@ class App(QMainWindow):
 
         self.setCentralWidget(central)
 
-        # 窗口最小高度由布局实际需求决定：中栏固定高度 + 风格面板半高 + 其余固定块。
+        # 窗口最小高度由布局实际需求决定：中栏压缩下限 + 风格面板半高 + 其余固定块。
         # 写死数值会在字号/系统缩放大时低于真实需求，中栏先被裁切而不是面板滚动。
         need = layout.minimumSize().height() + self.menuBar().sizeHint().height()
         self.setMinimumSize(_MIN_WIDTH, need)
+
+    def _default_size(self) -> tuple[int, int]:
+        """默认窗口尺寸：宽度固定，高度取「内容全高 与 可用屏幕高」的较小者。
+
+        高度按布局实际需求算而不是写死：中栏本身只需按钮/输入框不被裁掉那么多
+        （约 386px），要末行不被裁掉的风格辅助区再往下压一截。写死一个偏小的值
+        （如原先的 880）在 150% 系统缩放下就装不下全部内容，一开局就出现滚动条。
+        """
+        central = self.centralWidget()
+        need = central.layout().sizeHint().height() + self.menuBar().sizeHint().height()
+        screen = self.screen().availableGeometry().height() if self.screen() else need
+        return _DEFAULT_WIDTH, max(min(need, screen), self.minimumHeight())
 
     def _bind_shortcuts(self) -> None:
         QShortcut(QKeySequence("Ctrl+Return"), self, activated=self.on_synthesize)

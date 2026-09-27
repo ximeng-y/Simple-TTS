@@ -19,6 +19,9 @@ PAD_L = 12
 GAP = 6
 # 右侧配置区（音色 / 输出 并排），越宽左侧文本区越窄
 RIGHT_COL_W = 440
+# 左侧两个文本框的高度基准：上方「音色描述」固定这么高，下方「合成文本」至少这么高。
+# 两者取下限的意义是 —— 中栏被压缩时只会压矮合成文本框，且最多压到与音色描述框齐平。
+TEXT_BOX_H = 96
 
 # 依次尝试，取第一个系统里存在的
 _PREFERRED_FONTS = ("Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", "Tahoma")

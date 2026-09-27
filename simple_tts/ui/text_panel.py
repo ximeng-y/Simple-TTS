@@ -62,7 +62,7 @@ class TextPanel(QWidget):
 
         self.style_text = QPlainTextEdit(self)
         self.style_text.setLineWrapMode(QPlainTextEdit.WidgetWidth)
-        self.style_text.setFixedHeight(96)
+        self.style_text.setFixedHeight(theme.TEXT_BOX_H)
         self.style_text.textChanged.connect(self._on_text_change)
         parent_layout.addWidget(self.style_text)
 
@@ -79,6 +79,8 @@ class TextPanel(QWidget):
 
         self.text = QPlainTextEdit(self)
         self.text.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        # 中栏被压缩时只压这个框（上方描述框已固定高度），压到与描述框齐平为止
+        self.text.setMinimumHeight(theme.TEXT_BOX_H)
         self.text.textChanged.connect(self._handle_text_edit)
         parent_layout.addWidget(self.text, 1)
 
