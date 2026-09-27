@@ -232,7 +232,7 @@ class ConfigPanel(QScrollArea):
         separator.setFrameShadow(QFrame.Sunken)
         layout.addWidget(separator)
 
-        layout.addWidget(theme.title(section, "输出目录"))
+        layout.addWidget(theme.title(section, "保存目录"))
         dir_row = QHBoxLayout()
         dir_row.setSpacing(theme.GAP)
         self._dir_edit = QLineEdit(section)
