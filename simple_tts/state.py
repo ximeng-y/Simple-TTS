@@ -30,9 +30,9 @@ def userdata_dir() -> str:
     """程序自用的数据目录。所有需要落盘的东西都收敛在这里。
 
     跟着程序走而不是跟着系统用户目录走，是为了让整个软件连同产物都在一个
-    文件夹内，拷贝/删除互不影响。里面目前有两样：output/ 放合成的音频，
-    settings.json 放配置。目录按需创建（见 output.save_audio、storage.save），
-    不在这里做任何磁盘操作。
+    文件夹内，拷贝/删除互不影响。里面目前有三样：output/ 放合成产物的临时
+    文件，save/ 放用户保存下来的音频，settings.json 放配置。目录按需创建
+    （见 output.save_audio、storage.save），不在这里做任何磁盘操作。
     """
     return os.path.join(_program_dir(), "userdata")
 
@@ -42,8 +42,18 @@ def settings_path() -> str:
     return os.path.join(userdata_dir(), "settings.json")
 
 
-def _default_output_dir() -> str:
+def temp_output_dir() -> str:
+    """合成产物的临时落脚点，固定不变。
+
+    合成的音频一律先落这里，再由用户按需「保存」到 save_dir。临时目录按
+    temp_limit 做先入先出的清理（见 output.prune），因此它既不入配置，
+    也不出现在界面上 —— 换个位置对用户没有意义，反而多一个填错的机会。
+    """
     return os.path.join(userdata_dir(), "output")
+
+
+def _default_save_dir() -> str:
+    return os.path.join(userdata_dir(), "save")
 
 
 @dataclass
@@ -85,7 +95,12 @@ class AppState:
     model_id: str = catalog.PROVIDERS[0]["models"][0]["id"]
 
     # ---- 输出
-    output_dir: str = field(default_factory=_default_output_dir)
+    # 用户点击「保存」时音频的落点，不受临时文件上限约束。
+    # 合成的产物本身先落在固定的 userdata/output（见 temp_output_dir），
+    # 那里按 temp_limit 先入先出地清理，与这里互不影响。
+    save_dir: str = field(default_factory=_default_save_dir)
+    # 临时目录保留的条数上限，0 表示不限制。超出后每次合成成功时删掉最旧的几条。
+    temp_limit: int = 10
     # 扩展名不写进模式：模式只拼文件名主体，扩展名一律由落盘时按 audio_format
     # 追加，避免模式里的 .wav 与实际内容不符。可用变量见 output.build_filename。
     filename_pattern: str = "{ts}_{voice}"

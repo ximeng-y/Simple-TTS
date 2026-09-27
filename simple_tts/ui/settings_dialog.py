@@ -97,7 +97,7 @@ class SettingsDialog(QDialog):
         layout.setColumnStretch(1, 1)
         row = 0
 
-        layout.addWidget(theme.title(page, "保存目录"), row, 0, Qt.AlignLeft)
+        layout.addWidget(theme.title(page, "默认保存目录"), row, 0, Qt.AlignLeft)
         dir_row = QHBoxLayout()
         dir_row.setSpacing(theme.GAP)
         self._dir_edit = QLineEdit(page)
@@ -251,7 +251,7 @@ class SettingsDialog(QDialog):
             self._base_edits[provider_id].setText(provider["base_url"])
             self._key_edits[provider_id].setText(self._state.api_keys.get(provider_id, ""))
 
-        self._dir_edit.setText(self._state.output_dir)
+        self._dir_edit.setText(self._state.save_dir)
         self._limit_spin.setValue(self._state.temp_limit)
         for fmt_id, button in self._format_buttons.items():
             button.setChecked(fmt_id == self._state.audio_format)
@@ -283,7 +283,7 @@ class SettingsDialog(QDialog):
             provider_id = provider["id"]
             state.api_keys[provider_id] = self._key_edits[provider_id].text()
 
-        state.output_dir = self._dir_edit.text()
+        state.save_dir = self._dir_edit.text()
         state.temp_limit = self._limit_spin.value()
         state.audio_format = self._collect_format() or "wav"
         state.auto_play = self._autoplay_check.isChecked()
@@ -310,7 +310,7 @@ class SettingsDialog(QDialog):
                 return
 
     def _pick_dir(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "选择保存目录", self._dir_edit.text() or "")
+        path = QFileDialog.getExistingDirectory(self, "选择默认保存目录", self._dir_edit.text() or "")
         if path:
             self._dir_edit.setText(path)
 

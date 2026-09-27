@@ -5,8 +5,9 @@
 
 两类内容分开处理：
 
-- 普通配置项：字符串与布尔值，读回时按类型逐项过滤，类型不符的项当作没有，
-  留着内存里的默认值 —— 配置文件被手改坏时最多丢几项设置，不至于起不来。
+- 普通配置项：字符串、布尔值与非负整数，读回时按类型逐项过滤，类型不符的项
+  当作没有，留着内存里的默认值 —— 配置文件被手改坏时最多丢几项设置，不至于
+  起不来。
 - API Key：不写明文。整份 key 表先用 JSON 序列化，再交给 Windows 的 DPAPI
   （CryptProtectData）用当前登录用户的凭据加密，最后以 base64 存成一行文本。
   于是同一台机器上换个 Windows 账户也解不开，把 userdata/ 整个拷到别的机器
@@ -29,8 +30,11 @@ from ctypes import wintypes
 from . import catalog
 
 # 落盘的普通配置项。字段名即 JSON 键名，不另立一套键名免得两边对不上。
-STR_KEYS = ("provider_id", "model_id", "output_dir", "filename_pattern", "audio_format")
+STR_KEYS = ("provider_id", "model_id", "save_dir", "filename_pattern", "audio_format")
 BOOL_KEYS = ("auto_play", "keep_history", "confirm_overwrite")
+# 整型配置项。读回时只认非负整数：负数条数上限没有意义，字符串 "10"
+# 也不替它转 —— 与其余各项一样，类型不符就当作没写，留默认值。
+INT_KEYS = ("temp_limit",)
 
 # 密钥在文件里的键名。与普通项不同名，是为了让「密文被当成明文读出来」
 # 这类错误没法悄悄发生。
@@ -141,7 +145,9 @@ def _unpack_keys(text: object) -> dict[str, str]:
 
 
 def _to_dict(state) -> dict:
-    data: dict[str, object] = {key: getattr(state, key) for key in STR_KEYS + BOOL_KEYS}
+    data: dict[str, object] = {
+        key: getattr(state, key) for key in STR_KEYS + BOOL_KEYS + INT_KEYS
+    }
     data[SECRETS_KEY] = _pack_keys(state.api_keys)
     return data
 
@@ -159,6 +165,11 @@ def _apply(state, data: dict) -> None:
     for key in BOOL_KEYS:
         value = data.get(key)
         if isinstance(value, bool):
+            setattr(state, key, value)
+    for key in INT_KEYS:
+        value = data.get(key)
+        # 先排掉 bool：Python 里 True 也是 int，不挡会让它变成条数上限 1
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
             setattr(state, key, value)
 
     state.api_keys = _unpack_keys(data.get(SECRETS_KEY))

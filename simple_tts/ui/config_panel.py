@@ -232,7 +232,7 @@ class ConfigPanel(QScrollArea):
         separator.setFrameShadow(QFrame.Sunken)
         layout.addWidget(separator)
 
-        layout.addWidget(theme.title(section, "保存目录"))
+        layout.addWidget(theme.title(section, "输出目录"))
         dir_row = QHBoxLayout()
         dir_row.setSpacing(theme.GAP)
         self._dir_edit = QLineEdit(section)
@@ -295,7 +295,7 @@ class ConfigPanel(QScrollArea):
 
         for fmt_id, button in self._format_buttons.items():
             button.setChecked(fmt_id == self._state.audio_format)
-        self._dir_edit.setText(self._state.output_dir)
+        self._dir_edit.setText(self._state.save_dir)
         self._pattern_edit.setText(self._state.filename_pattern)
         self._autoplay_check.setChecked(self._state.auto_play)
 
@@ -306,7 +306,7 @@ class ConfigPanel(QScrollArea):
         """设置页确认后，把与设置页重叠的项同步到控件。"""
         for fmt_id, button in self._format_buttons.items():
             button.setChecked(fmt_id == self._state.audio_format)
-        self._dir_edit.setText(self._state.output_dir)
+        self._dir_edit.setText(self._state.save_dir)
         self._autoplay_check.setChecked(self._state.auto_play)
 
     def commit(self) -> None:
@@ -328,7 +328,7 @@ class ConfigPanel(QScrollArea):
             draft.sample_path = self._sample_edit.text()
 
         self._state.audio_format = self._current_format() or "wav"
-        self._state.output_dir = self._dir_edit.text()
+        self._state.save_dir = self._dir_edit.text()
         self._state.filename_pattern = self._pattern_edit.text()
         self._state.auto_play = self._autoplay_check.isChecked()
 
