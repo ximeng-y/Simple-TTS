@@ -1,5 +1,11 @@
 """合成结果落盘。
 
+合成的音频一律先写进固定的临时目录（`state.temp_output_dir()`），再由用户按需
+点「保存」拷进保存目录。两处的分工：
+
+- 临时目录：自动清理，只留最新的若干条（见 `prune`），先进先出
+- 保存目录：用户明确要留下的东西，只增不减，本模块的清理逻辑一概不碰
+
 文件名模式里的可用变量与界面提示一一对应：
 
     {ts}     时间戳，形如 20260927-153012
@@ -20,6 +26,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from collections.abc import Callable
 from datetime import datetime
 
@@ -27,6 +34,10 @@ from datetime import datetime
 _ILLEGAL_RE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 # 模式里可用的占位符
 _PLACEHOLDERS = ("ts", "voice", "model", "index")
+
+# prune 认定为合成产物、可以清理的扩展名。只认这两种：临时目录里若混进
+# 别的文件（用户手放的东西、编辑器残留），一律不碰。
+AUDIO_EXTENSIONS = (".wav", ".mp3")
 
 # 同名文件已存在时，询问回调可返回的三种处置
 CONFLICT_OVERWRITE = "overwrite"  # 覆盖旧文件，不再改名
@@ -151,3 +162,104 @@ def save_audio(
             os.remove(temp_path)
         raise
     return path
+
+
+def copy_audio(
+    source: str,
+    directory: str,
+    *,
+    on_conflict: Callable[[str], str] | None = None,
+) -> str | None:
+    """把已落盘的音频拷进目录，返回副本路径；用户取消保存时返回 None。
+
+    与 save_audio 是两件事：那边是「一段字节该叫什么名字」，这边名字已经定了
+    （就是临时文件的名字），只做改名去重，因此不涉及文件名模式。同名处置沿用
+    save_audio 那一套常量与回调语义（覆盖 / 另存为副本 / 取消），由调用方决定
+    要不要问 —— 拷的是用户自己刚听过的那一份，问不问都能讲得通。
+    """
+    directory = directory or "."
+    os.makedirs(directory, exist_ok=True)
+
+    name = os.path.basename(source)
+    stem, suffix = os.path.splitext(name)
+    target = os.path.join(directory, name)
+    if on_conflict is not None and os.path.exists(target):
+        decision = on_conflict(target)
+        if decision == CONFLICT_CANCEL:
+            return None
+        if decision != CONFLICT_OVERWRITE:
+            seq = 1
+            while os.path.exists(target):
+                seq += 1
+                target = os.path.join(directory, f"{stem}_{seq}{suffix}")
+    else:
+        seq = 1
+        while os.path.exists(target):
+            seq += 1
+            target = os.path.join(directory, f"{stem}_{seq}{suffix}")
+
+    # 先拷到临时文件再改名，与 save_audio 同一招：中途失败不留半截音频
+    temp_path = target + ".part"
+    try:
+        shutil.copy2(source, temp_path)
+        os.replace(temp_path, target)
+    except OSError:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise
+    return target
+
+
+def prune(directory: str, limit: int, *, keep: tuple[str, ...] = ()) -> list[str]:
+    """把目录里的音频删到只剩最新 limit 条，返回被删掉的路径。
+
+    limit 为 0 或不大于 0 表示不限制，直接返回空列表。所谓「最旧」按文件的
+    修改时间排，不看文件名 —— 文件名模式是用户可改的，拿它排序未必能得到
+    用户心里的先后。
+
+    两处不删：
+      - 非音频扩展名（AUDIO_EXTENSIONS 之外）与 .part 中间文件，不做清理
+      - keep 里列出的路径，即正在播放或刚合成出来的那一份 —— MCI 占着文件时
+        删也删不掉，删了还会让「保存」按钮指向一个不存在的文件
+
+    条数是「目录里一共留几条」，keep 保住的那份也占名额 —— 实际调用时 keep 传的
+    就是刚生成、最新的一份，它在排序里本就排在最前，于是清完恰好是 limit 条
+    （limit=10 就是留 10 条）。若 keep 指的是一个本会被清掉的旧文件，它会越过
+    上限留下，目录里因此可能多出这一条：宁可多留一个正在用的文件，也不要把它
+    从「保存」按钮底下删掉。
+
+    删除失败（被占用、只读）静默跳过：临时目录的清理不该打断合成流程，
+    下次合成还会再清一遍。
+    """
+    if limit <= 0:
+        return []
+
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return []
+
+    protected = {os.path.normcase(os.path.abspath(item)) for item in keep}
+    entries: list[tuple[float, str]] = []
+    for name in names:
+        if not name.lower().endswith(AUDIO_EXTENSIONS):
+            continue
+        path = os.path.join(directory, name)
+        try:
+            stamp = os.path.getmtime(path)
+        except OSError:
+            continue
+        entries.append((stamp, path))
+
+    # 新的在前：前 limit 条留下，其余清掉
+    entries.sort(key=lambda item: item[0], reverse=True)
+    removed: list[str] = []
+    for _stamp, path in entries[limit:]:
+        if os.path.normcase(os.path.abspath(path)) in protected:
+            continue
+        try:
+            os.remove(path)
+        except OSError:
+            continue
+        removed.append(path)
+    return removed
