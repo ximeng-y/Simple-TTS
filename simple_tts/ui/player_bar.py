@@ -1,16 +1,20 @@
 """底部播放条：合成按钮 + 进度 + 试听控制。
 
-本版本后端尚未接入：
-  - 「合成」只走一遍假进度（约 1.5 秒）后复位，不落盘、不弹提示、不播放
-  - 播放条上的试听 / 停止 / 进度 / 音量控件保留完整形态，但操作后无任何效果
+四个状态互斥，由 set_state() 统一驱动：
+
+    synth    合成中：全部控件禁用，进度条走不确定动画（时长未知，给不出百分比）
+    idle     空闲：没有可播放的文件，只有「合成」可用，进度条隐藏
+    ready    已装载：可试听、可拖动进度、可调音量，进度条隐藏
+    playing  播放中：同 ready，但进度条显示播放位置
+
+进度条只在合成中与播放中出现：合成失败或播放结束就隐藏，不留一条读不出的静态进度。
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
-    QLabel,
     QProgressBar,
     QPushButton,
     QSlider,
@@ -19,11 +23,15 @@ from PySide6.QtWidgets import (
 
 from . import theme
 
-# 假合成的总时长（毫秒）与进度刷新间隔
-_FAKE_TOTAL_MS = 1500
-_TICK_MS = 50
-
 _PLACEHOLDER_TIME = "00:00 / 00:00"
+
+# 进度条内部以 0-1000 表示播放比例，避免用浮点拖动滑块
+_PROGRESS_MAX = 1000
+
+
+def _format_time(seconds: float) -> str:
+    seconds = max(int(seconds), 0)
+    return f"{seconds // 60:02d}:{seconds % 60:02d}"
 
 
 class PlayerBar(QWidget):
@@ -41,8 +49,9 @@ class PlayerBar(QWidget):
         layout.addWidget(self.synth_button)
 
         self.progress = QProgressBar(self)
-        self.progress.setRange(0, 100)
+        self.progress.setRange(0, _PROGRESS_MAX)
         self.progress.setTextVisible(False)
+        self.progress.setVisible(False)
         layout.addWidget(self.progress, 1)
 
         # ---- 试听控制
@@ -57,13 +66,12 @@ class PlayerBar(QWidget):
         layout.addWidget(self.stop_button)
 
         self.seek_scale = QSlider(Qt.Horizontal, self)
-        self.seek_scale.setRange(0, 100)
+        self.seek_scale.setRange(0, _PROGRESS_MAX)
         self.seek_scale.setFixedWidth(160)
-        self.seek_scale.setEnabled(False)
         layout.addWidget(self.seek_scale)
-        # 初始化完成后再接信号：QSlider.setValue() 同样会发 valueChanged，
-        # 提前接会在控件尚未装配进主窗口时就回调到 App。
-        self.seek_scale.valueChanged.connect(on_seek)
+        # 用 sliderMoved 而非 valueChanged：后者在拖动与程序回写位置时都会触发，
+        # 回写会立刻反过来 seek 一次，形成抖动。sliderMoved 只在用户拖动时发出。
+        self.seek_scale.sliderMoved.connect(on_seek)
 
         self.time_label = theme.hint(self, _PLACEHOLDER_TIME)
         self.time_label.setMinimumWidth(100)
@@ -79,48 +87,57 @@ class PlayerBar(QWidget):
         self.volume_scale.valueChanged.connect(on_volume)
         layout.addWidget(self.volume_scale)
 
-        self._timer = QTimer(self)
-        self._timer.setInterval(_TICK_MS)
-        self._timer.timeout.connect(self._tick)
-
-        self._on_done = None
-        self._elapsed_ms = 0
+        self.set_state("idle")
 
     # ================================================================ 对外
 
-    def set_busy(self, busy: bool) -> None:
-        """合成期间禁用交互控件，进度条只在忙碌时可见。"""
-        if busy:
-            self.synth_button.setEnabled(False)
-            self.play_button.setEnabled(False)
-            self.stop_button.setEnabled(False)
+    @property
+    def state(self) -> str:
+        """当前状态。只读——状态一律经 set_state 变更，避免各处自行赋值。"""
+        return self._state
+
+    def set_state(self, state: str) -> None:
+        """切换播放条状态：synth / idle / ready / playing。"""
+        self._state = state
+
+        synthesizing = state == "synth"
+        playable = state in ("ready", "playing")
+
+        self.synth_button.setEnabled(not synthesizing)
+        self.play_button.setEnabled(playable)
+        self.stop_button.setEnabled(playable)
+        self.seek_scale.setEnabled(playable)
+        # 音量由客户端播放器决定，有文件即可调；合成中连文件都还没有
+        self.volume_scale.setEnabled(not synthesizing)
+
+        if state == "synth":
+            # 时长未知，走不确定动画而不是给出一个编造的百分比
+            self.progress.setRange(0, 0)
             self.progress.setVisible(True)
-            self.progress.setValue(0)
             self.time_label.setText(_PLACEHOLDER_TIME)
-        else:
-            self.synth_button.setEnabled(True)
-            self.play_button.setEnabled(True)
-            self.stop_button.setEnabled(True)
+            self.seek_scale.setValue(0)
+        elif state == "idle":
+            self.progress.setRange(0, _PROGRESS_MAX)
             self.progress.setValue(0)
             self.progress.setVisible(False)
+            self.time_label.setText(_PLACEHOLDER_TIME)
+            self.seek_scale.setValue(0)
+        else:
+            self.progress.setRange(0, _PROGRESS_MAX)
+            self.progress.setVisible(state == "playing")
 
-    def start_fake_progress(self, on_done) -> None:
-        """走一遍假进度后回调 on_done。不做任何真实合成。"""
-        self._elapsed_ms = 0
-        self._on_done = on_done
-        self._timer.start()
-        self._tick()
+    def set_position(self, position: float, duration: float) -> None:
+        """刷新播放进度与时间标签。不播放、不拖动时原地不动。"""
+        self.time_label.setText(f"{_format_time(position)} / {_format_time(duration)}")
+        if duration <= 0:
+            return
+        ratio = max(0.0, min(position / duration, 1.0))
+        value = int(ratio * _PROGRESS_MAX)
+        # 用户正按住滑块时不要抢着回写，否则滑块会被拽回播放位置
+        if not self.seek_scale.isSliderDown():
+            self.seek_scale.setValue(value)
+        self.progress.setValue(value)
 
-    # ================================================================ 内部
-
-    def _tick(self) -> None:
-        self._elapsed_ms += _TICK_MS
-        ratio = min(self._elapsed_ms / _FAKE_TOTAL_MS, 1.0)
-        self.progress.setValue(int(ratio * 100))
-        if ratio >= 1.0:
-            self._timer.stop()
-            if self._on_done is not None:
-                self._on_done()
-
-    def cancel(self) -> None:
-        self._timer.stop()
+    def playback_ratio(self) -> float:
+        """拖动条当前位置对应的比例，供 App 换算成 seek 的秒数。"""
+        return self.seek_scale.value() / _PROGRESS_MAX

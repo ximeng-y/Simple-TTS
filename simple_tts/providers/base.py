@@ -1,21 +1,20 @@
 """TTS 服务商的抽象基类。
 
-本版本（v0.1.0 前端形态）不提供任何实现，UI 层也不 import 本模块 ——
-保持「GUI 与后端严格分层」这条约束在代码里可见。
-
-后续接入 MiMo 时新增 mimo.py：
-
-    class MiMoProvider(TTSProvider):
-        def synthesize(self, text, *, model, voice=None, style_prompt="",
-                       audio_format="wav", optimize_text_preview=False, **kw) -> bytes:
-            # 用标准库 urllib 调 Chat Completions 非流式接口
-            # 响应中 choices[0].message.audio.data 为 base64 编码的完整音频
-            # base64.b64decode(...) 后即为可落盘的音频字节
+实现类只依赖标准库与 catalog（纯数据），不 import 任何 Qt 模块 ——
+「GUI 与后端严格分层」这条约束在这里是可见的：界面层只拿到 bytes。
 """
 
 from __future__ import annotations
 
 import abc
+
+
+class SynthesisError(RuntimeError):
+    """合成失败。
+
+    消息是直接给用户看的中文，界面层原样弹在对话框里即可，
+    不需要（也不应该）再去解析服务端返回的原始报文。
+    """
 
 
 class TTSProvider(abc.ABC):
@@ -27,5 +26,6 @@ class TTSProvider(abc.ABC):
 
         params 由各实现自行约定（模型、音色、风格指令、输出格式等）。
         取 wav 时服务端返回成型 WAV 文件，取 mp3 时返回成型 MP3 文件，直接落盘即可。
+        失败时抛 SynthesisError。
         """
         raise NotImplementedError

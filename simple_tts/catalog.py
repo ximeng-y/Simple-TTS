@@ -27,6 +27,7 @@ PROVIDERS = [
         "name": "MIMO",
         "desc": "小米 MiMo 语音合成，OpenAI Chat Completions 风格接口",
         "base_url": "https://api.xiaomimimo.com/v1",
+        "chat_path": "/chat/completions",
         "models": [
             {
                 "id": "mimo-v2.5-tts",
@@ -115,14 +116,20 @@ FORMATS = [
     ("mp3", "MP3", "服务端返回成型 MP3 文件，文件体积更小"),
 ]
 
+# 请求超时（秒）：整段音频一次性返回，长文本耗时较长，给得宽一些。
+REQUEST_TIMEOUT = 120
+
 # ---------------------------------------------------------------- 音色复刻样本
 
-# (扩展名, MIME 类型)。文档限定只支持 mp3 与 wav，Base64 后不超过 10MB。
+# (扩展名, MIME 类型)。文档限定只支持 mp3 与 wav。样本体积上限见下。
 SAMPLE_MIME = [
     (".mp3", "audio/mpeg"),
     (".wav", "audio/wav"),
 ]
-MAX_SAMPLE_BYTES = 10 * 1024 * 1024
+# 音色复刻样本的体积上限，单位是 Base64 编码后的字符数 —— 文档说的是
+# 「转换后的 Base64 编码的字符串大小不能超过 10MB」，判的是编码后而不是原文件。
+# Base64 会膨胀约 4/3，按原始字节判会让 8MB 的样本本地放行、服务端拒收。
+MAX_SAMPLE_B64_CHARS = 10 * 1024 * 1024
 
 
 def sample_mime_for(path: str) -> str:
