@@ -48,13 +48,19 @@ def hint(parent: QWidget, text: str = "", wrap: bool = False) -> QLabel:
 
     换行提示在窄列里可能把单行文本撑得很宽（QLabel 换行前不折行）。
     水平策略置为 Ignored 后只按可用宽度折行，不参与撑大布局。
+
+    但宽高比 Ignored 更麻烦：QLabel 折行后的真实高度要由 heightForWidth 现算，
+    而 QSizePolicy 的两个参数构造会把 heightForWidth 重置为 False，布局便只按
+    未折行的一行高度（sizeHint）分配，文字被下一行盖住。因此显式打开。
     """
     label = QLabel(text, parent)
     label.setStyleSheet(_HINT_STYLE)
     label.setWordWrap(wrap)
     label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
     if wrap:
-        label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        policy = QSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        policy.setHeightForWidth(True)
+        label.setSizePolicy(policy)
     return label
 
 
