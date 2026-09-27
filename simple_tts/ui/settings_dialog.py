@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QRadioButton,
+    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -105,6 +106,19 @@ class SettingsDialog(QDialog):
         dir_button.clicked.connect(self._pick_dir)
         dir_row.addWidget(dir_button)
         layout.addLayout(dir_row, row, 1)
+        row += 1
+
+        layout.addWidget(theme.title(page, "临时文件上限"), row, 0, Qt.AlignLeft)
+        limit_row = QHBoxLayout()
+        limit_row.setSpacing(theme.GAP)
+        self._limit_spin = QSpinBox(page)
+        # 0 是「不限制」，因此下限取 0 而不是 1，并在下面把特殊值写清楚
+        self._limit_spin.setRange(0, 999)
+        self._limit_spin.setSuffix(" 条")
+        self._limit_spin.setFixedWidth(90)
+        limit_row.addWidget(self._limit_spin)
+        limit_row.addWidget(theme.hint(page, "0 表示不限制"), 1)
+        layout.addLayout(limit_row, row, 1)
         row += 1
 
         layout.addWidget(theme.title(page, "默认音频格式"), row, 0, Qt.AlignLeft)
@@ -238,6 +252,7 @@ class SettingsDialog(QDialog):
             self._key_edits[provider_id].setText(self._state.api_keys.get(provider_id, ""))
 
         self._dir_edit.setText(self._state.output_dir)
+        self._limit_spin.setValue(self._state.temp_limit)
         for fmt_id, button in self._format_buttons.items():
             button.setChecked(fmt_id == self._state.audio_format)
         self._autoplay_check.setChecked(self._state.auto_play)
@@ -269,6 +284,7 @@ class SettingsDialog(QDialog):
             state.api_keys[provider_id] = self._key_edits[provider_id].text()
 
         state.output_dir = self._dir_edit.text()
+        state.temp_limit = self._limit_spin.value()
         state.audio_format = self._collect_format() or "wav"
         state.auto_play = self._autoplay_check.isChecked()
         state.keep_history = self._history_check.isChecked()

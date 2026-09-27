@@ -4,7 +4,7 @@
 
     synth    合成中：全部控件禁用，进度条走不确定动画（时长未知，给不出百分比）
     idle     空闲：没有可播放的文件，只有「合成」可用，进度条隐藏
-    ready    已装载：可试听、可拖动进度、可调音量，进度条隐藏
+    ready    已装载：可试听、可保存、可拖动进度、可调音量，进度条隐藏
     playing  播放中：同 ready，但进度条显示播放位置
 
 进度条只在合成中与播放中出现：合成失败或播放结束就隐藏，不留一条读不出的静态进度。
@@ -35,7 +35,9 @@ def _format_time(seconds: float) -> str:
 
 
 class PlayerBar(QWidget):
-    def __init__(self, parent, on_synthesize, on_play, on_stop, on_seek, on_volume) -> None:
+    def __init__(
+        self, parent, on_synthesize, on_play, on_stop, on_save, on_seek, on_volume
+    ) -> None:
         super().__init__(parent)
 
         layout = QHBoxLayout(self)
@@ -64,6 +66,11 @@ class PlayerBar(QWidget):
         self.stop_button.setMinimumWidth(80)
         self.stop_button.clicked.connect(lambda: on_stop())
         layout.addWidget(self.stop_button)
+
+        self.save_button = QPushButton("保存", self)
+        self.save_button.setMinimumWidth(80)
+        self.save_button.clicked.connect(lambda: on_save())
+        layout.addWidget(self.save_button)
 
         self.seek_scale = QSlider(Qt.Horizontal, self)
         self.seek_scale.setRange(0, _PROGRESS_MAX)
@@ -106,6 +113,7 @@ class PlayerBar(QWidget):
         self.synth_button.setEnabled(not synthesizing)
         self.play_button.setEnabled(playable)
         self.stop_button.setEnabled(playable)
+        self.save_button.setEnabled(playable)
         self.seek_scale.setEnabled(playable)
         # 音量由客户端播放器决定，有文件即可调；合成中连文件都还没有
         self.volume_scale.setEnabled(not synthesizing)
