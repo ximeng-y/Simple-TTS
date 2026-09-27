@@ -7,8 +7,10 @@
     {model}  模型 id
     {index}  序号，从 1 开始；同名文件已存在时自动递增
 
-扩展名不由模式决定，一律跟随当前音频格式 —— 模式里写死的 .wav 在切到 mp3 时
-会与实际文件内容不符，因此这里以格式为准覆写扩展名。
+扩展名不由模式决定：模式只负责文件名主体，扩展名一律由这里按当前音频格式
+追加。用户若在模式里自己写了 .wav，它也只是一段普通文字（后果是出现
+`xxx.wav.wav`）—— 不去猜测哪一段是用户写的扩展名，就不会吃掉 `mimo-v2.5-tts`
+里 `.5-tts` 这类带点的名字。
 """
 
 from __future__ import annotations
@@ -37,21 +39,19 @@ def sanitize(name: str) -> str:
     return cleaned or "unnamed"
 
 
-def _with_extension(name: str, audio_format: str) -> str:
-    """把扩展名统一成当前音频格式。"""
-    stem, _ext = os.path.splitext(name)
-    return f"{stem}.{audio_format.lstrip('.') or 'wav'}"
+def _suffix(audio_format: str) -> str:
+    """当前音频格式对应的扩展名（不含点）。"""
+    return audio_format.lstrip(".") or "wav"
 
 
-def build_filename(
+def _render_stem(
     pattern: str,
     *,
     voice_name: str,
     model_id: str,
-    audio_format: str,
     index: int = 1,
 ) -> str:
-    """按模式拼出一个安全的基础文件名（不含去重后缀）。"""
+    """按模式拼出文件名主体（不含扩展名）。"""
     values = {
         "ts": timestamp_slug(),
         "voice": sanitize(voice_name or "voice"),
@@ -63,7 +63,20 @@ def build_filename(
         result = result.replace("{" + key + "}", values[key])
     # 未知占位符原样留着会变成字面量，统一按原名处理更不意外
     result = re.sub(r"\{[^{}]*\}", "", result)
-    return _with_extension(sanitize(result), audio_format)
+    return sanitize(result)
+
+
+def build_filename(
+    pattern: str,
+    *,
+    voice_name: str,
+    model_id: str,
+    audio_format: str,
+    index: int = 1,
+) -> str:
+    """按模式拼出一个安全的基础文件名（不含去重后缀）。"""
+    stem = _render_stem(pattern, voice_name=voice_name, model_id=model_id, index=index)
+    return f"{stem}.{_suffix(audio_format)}"
 
 
 def save_audio(
@@ -84,34 +97,25 @@ def save_audio(
     os.makedirs(directory, exist_ok=True)
 
     uses_index = "{index}" in (pattern or "")
+    suffix = _suffix(audio_format)
     index = 1
-    filename = build_filename(
-        pattern,
-        voice_name=voice_name,
-        model_id=model_id,
-        audio_format=audio_format,
-        index=index,
-    )
-    path = os.path.join(directory, filename)
+    # 不含序号的渲染结果只算一次，避免时间戳在循环里跨秒变化
+    base_stem = _render_stem(pattern, voice_name=voice_name, model_id=model_id)
 
-    # uses_index 时序号本身就能腾出位置，只需递增 {index}；
-    # 否则保持基础名不变，在扩展名前追加去重后缀。
+    def candidate(seq: int) -> str:
+        """第 seq 次尝试的文件名。扩展名始终由这里拼，不解析名字里已有的点。"""
+        if not uses_index and seq > 1:
+            # 模式里没有 {index}：保持主体不变，在扩展名前追加去重后缀
+            return f"{base_stem}_{seq}.{suffix}"
+        stem = base_stem if not uses_index else _render_stem(
+            pattern, voice_name=voice_name, model_id=model_id, index=seq
+        )
+        return f"{stem}.{suffix}"
+
+    path = os.path.join(directory, candidate(index))
     while os.path.exists(path):
         index += 1
-        if uses_index:
-            path = os.path.join(
-                directory,
-                build_filename(
-                    pattern,
-                    voice_name=voice_name,
-                    model_id=model_id,
-                    audio_format=audio_format,
-                    index=index,
-                ),
-            )
-        else:
-            stem, ext = os.path.splitext(filename)
-            path = os.path.join(directory, f"{stem}_{index}{ext}")
+        path = os.path.join(directory, candidate(index))
 
     # 先写临时文件再改名：中途失败不会留下一个内容不完整的音频文件
     temp_path = path + ".part"

@@ -211,7 +211,8 @@ class ConfigPanel(QScrollArea):
         layout.addWidget(
             theme.hint(
                 section,
-                "可用变量：{ts} 时间戳、{voice} 音色、{model} 模型、{index} 序号",
+                "可用变量：{ts} 时间戳、{voice} 音色、{model} 模型、{index} 序号；"
+                "扩展名按音频格式自动追加，不用写在这里",
                 wrap=True,
             )
         )
