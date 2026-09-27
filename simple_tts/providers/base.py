@@ -26,6 +26,6 @@ class TTSProvider(abc.ABC):
         """把 text 合成为一段音频，返回该音频文件的完整字节。
 
         params 由各实现自行约定（模型、音色、风格指令、输出格式等）。
-        取 wav 时服务端返回成型 WAV 文件，直接落盘即可，无需自行补写文件头。
+        取 wav 时服务端返回成型 WAV 文件，取 mp3 时返回成型 MP3 文件，直接落盘即可。
         """
         raise NotImplementedError
