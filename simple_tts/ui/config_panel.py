@@ -167,16 +167,19 @@ class ConfigPanel(QScrollArea):
         for hint in catalog.VOICE_DESC_HINTS:
             layout.addWidget(theme.hint(block, f"· {hint}", wrap=True))
 
-        self._optimize_check = QCheckBox("文本智能润色", block)
-        layout.addWidget(self._optimize_check)
-        layout.addWidget(
-            theme.hint(
-                block,
-                "对应请求参数 audio.optimize_text_preview；开启时可省略合成文本，"
-                "由服务端根据需要播报的内容智能润色。",
-                wrap=True,
-            )
-        )
+        # 「文本智能润色」暂时从前端撤下（对应请求参数 audio.optimize_text_preview）。
+        # 放开时把这一块连同 apply_model / commit 里的两处一起恢复即可，
+        # ModelDraft.optimize_preview 字段一直保留着，无需改回。
+        # self._optimize_check = QCheckBox("文本智能润色", block)
+        # layout.addWidget(self._optimize_check)
+        # layout.addWidget(
+        #     theme.hint(
+        #         block,
+        #         "对应请求参数 audio.optimize_text_preview；开启时可省略合成文本，"
+        #         "由服务端根据需要播报的内容智能润色。",
+        #         wrap=True,
+        #     )
+        # )
         layout.addStretch(1)
 
     def _build_clone_block(self, block: QWidget) -> None:
@@ -232,7 +235,7 @@ class ConfigPanel(QScrollArea):
         separator.setFrameShadow(QFrame.Sunken)
         layout.addWidget(separator)
 
-        layout.addWidget(theme.title(section, "输出目录"))
+        layout.addWidget(theme.title(section, "保存目录"))
         dir_row = QHBoxLayout()
         dir_row.setSpacing(theme.GAP)
         self._dir_edit = QLineEdit(section)
@@ -286,9 +289,6 @@ class ConfigPanel(QScrollArea):
             self._refresh_voice_hint()
             self._set_sing_checked(draft.sing)
 
-        if model["tone_source"] == "design":
-            self._optimize_check.setChecked(draft.optimize_preview)
-
         if model["tone_source"] == "clone":
             self._sample_edit.setText(draft.sample_path)
             self._refresh_sample_hint()
@@ -321,8 +321,8 @@ class ConfigPanel(QScrollArea):
         if model["tone_source"] == "preset":
             draft.voice_id = self._voice_box.currentData() or catalog.PRESET_VOICES[0]["voice_id"]
             draft.sing = self._sing_check.isChecked()
-        if model["tone_source"] == "design":
-            draft.optimize_preview = self._optimize_check.isChecked()
+        # 「文本智能润色」的勾选值不再从界面收回（控件已撤下，见 _build_design_block）：
+        # draft.optimize_preview 保持默认的 False，撤回开关时这里再补回来
 
         if model["tone_source"] == "clone":
             draft.sample_path = self._sample_edit.text()

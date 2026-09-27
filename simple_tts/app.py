@@ -354,6 +354,9 @@ class App(QMainWindow):
         self.player_bar.set_state("ready")
         self.player_bar.set_position(0.0, self.player.duration())
 
+        # 先把新文件护住再清理：本次是刚生成的，不该被自己的上限判出局
+        self._prune_temp()
+
         if pending.auto_play:
             self.on_play()
         else:
@@ -474,6 +477,14 @@ class App(QMainWindow):
         )
 
     # ================================================================ 内部
+
+    def _prune_temp(self) -> None:
+        """按设置里的条数上限清理临时目录，保留当前文件。"""
+        output.prune(
+            temp_output_dir(),
+            self.state.temp_limit,
+            keep=(self._current_file,) if self._current_file else (),
+        )
 
     def _save_settings(self) -> None:
         """把 state 里的配置写进 userdata/settings.json。

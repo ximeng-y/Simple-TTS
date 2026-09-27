@@ -97,7 +97,7 @@ class SettingsDialog(QDialog):
         layout.setColumnStretch(1, 1)
         row = 0
 
-        layout.addWidget(theme.title(page, "默认保存目录"), row, 0, Qt.AlignLeft)
+        layout.addWidget(theme.title(page, "保存目录"), row, 0, Qt.AlignLeft)
         dir_row = QHBoxLayout()
         dir_row.setSpacing(theme.GAP)
         self._dir_edit = QLineEdit(page)
@@ -310,7 +310,7 @@ class SettingsDialog(QDialog):
                 return
 
     def _pick_dir(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "选择默认保存目录", self._dir_edit.text() or "")
+        path = QFileDialog.getExistingDirectory(self, "选择保存目录", self._dir_edit.text() or "")
         if path:
             self._dir_edit.setText(path)
 
