@@ -19,7 +19,7 @@ Simple TTS 是一个轻量级的 Windows 桌面文本转语音工具，当前版
 | 模块 | 职责 |
 | --- | --- |
 | `catalog.py` | 纯数据：供应商/模型/预置音色/格式/风格标签，界面与后端共用 |
-| `state.py` | 内存中的配置与各模型草稿，退出即丢，不落盘 |
+| `state.py` | 内存中的配置与各模型草稿，退出即丢，不落盘；并提供 `userdata` 目录的定位 |
 | `providers/base.py` | `TTSProvider` 抽象与 `SynthesisError` |
 | `providers/mimo.py` | MiMo 实现，只依赖标准库，不 import Qt |
 | `synth.py` | 后台合成线程，结果经 Qt 信号回主线程 |
@@ -38,6 +38,17 @@ Simple TTS 是一个轻量级的 Windows 桌面文本转语音工具，当前版
 - **音频播放**：播放已落盘的本地音频文件，用 `ctypes` 调用 MCI（`mciSendStringW`），`open ... type mpegvideo` 加载后 wav 与 mp3 共用一套命令，零第三方依赖即可获得播放、停止、音量、播放位置与时长。MCI 没有结束回调，播放中由 `App` 用一个 100ms 定时器轮询 `status mode` 发现播放结束并停止轮询
 - **线程模型**：合成是阻塞 HTTP 调用，放在 `threading.Thread`（daemon）里执行，结果经 Qt 信号回主线程；线程为 daemon，请求未返回时关窗也能正常退出，`closeEvent` 只摘掉回调
 - **第三方依赖**：运行期依赖 `PySide6-Essentials`（LGPLv3，装在项目内 `.venv/`，不入版本库），开发期另使用 PyInstaller 打包；分发时用 PyInstaller `--onedir` 模式（不要将 Qt 二进制压进单文件，用户需能替换 Qt 二进制是 LGPLv3 的要求），产出目录内附 Qt/PySide6 的许可文件
+
+### 落盘位置
+
+需要写入磁盘的东西一律收敛在程序目录下的 `userdata/`（`state.userdata_dir()`），不碰系统用户目录：
+
+```
+userdata/
+  output/   合成的音频，默认保存目录（settings 里可改）
+```
+
+目录跟着程序走，整个软件连同产物在一个文件夹内，拷贝或删除互不影响；`userdata/` 已进 `.gitignore`。定位程序目录时区分两种形态：源码运行取包目录的上一级，打包成 exe 后取 `sys.executable` 所在目录 —— 冻结后 `__file__` 指向 PyInstaller 解出的临时目录（onefile 模式下随进程结束被删除），不能用来放数据。
 
 ## 已知边界
 

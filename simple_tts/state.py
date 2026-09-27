@@ -1,18 +1,42 @@
 """应用状态。
 
-本版本仅做前端形态演示，全部配置只存在于内存中，退出即丢，不写入磁盘。
+配置与各模型草稿只存在于内存中，退出即丢，不写入磁盘。
 """
 
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 
 from . import catalog
 
 
+def _program_dir() -> str:
+    """程序所在目录，即 userdata 的落点。
+
+    冻结成 exe 后 `__file__` 指向 PyInstaller 解出来的临时目录（onefile 模式下
+    随进程结束被删除，写进去等于丢），只有 `sys.executable` 才是 exe 自身的
+    位置，因此打包后以它为准；源码运行时就取包目录的上一级（项目根）。
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def userdata_dir() -> str:
+    """程序自用的数据目录。所有需要落盘的东西都收敛在这里。
+
+    跟着程序走而不是跟着系统用户目录走，是为了让整个软件连同产物都在一个
+    文件夹内，拷贝/删除互不影响。目前只用到 output/ 子目录；日后若要落盘
+    配置或合成历史，各自再开一个子目录。目录按需创建（见 output.save_audio），
+    不在这里做任何磁盘操作。
+    """
+    return os.path.join(_program_dir(), "userdata")
+
+
 def _default_output_dir() -> str:
-    return os.path.join(os.path.expanduser("~"), "Music", "SimpleTTS")
+    return os.path.join(userdata_dir(), "output")
 
 
 @dataclass
