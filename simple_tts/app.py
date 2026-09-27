@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import webbrowser
+from dataclasses import dataclass
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
@@ -46,6 +47,23 @@ _RIGHT_COL_W = theme.RIGHT_COL_W
 _TICK_MS = 100
 
 
+@dataclass(frozen=True)
+class _PendingSynth:
+    """发起请求时冻下来的落盘参数。
+
+    合成要跑数秒到数十秒，这段窗口里界面上的模型/音色/格式都还能改，
+    落盘若读「回调触发时」的值，文件名会与实际音频内容对不上
+    （例如中途切到 MP3 后扩展名变成 .mp3、内容却还是 WAV）。
+    """
+
+    voice_name: str
+    model_id: str
+    audio_format: str
+    output_dir: str
+    filename_pattern: str
+    auto_play: bool
+
+
 class App(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -55,6 +73,8 @@ class App(QMainWindow):
         self.provider = MiMoProvider()
 
         self._task: SynthesisTask | None = None
+        # 当前请求的落盘参数快照，随 _task 一同存在，合成回来时用它落盘
+        self._pending: _PendingSynth | None = None
         # 最近一次成功落盘的文件路径；None 表示还没有可试听的文件
         self._current_file: str | None = None
 
@@ -250,6 +270,17 @@ class App(QMainWindow):
             "optimize_text_preview": draft.optimize_preview and model["supports_optimize"],
         }
 
+        # 落盘参数与请求参数在同一时刻取值：合成期间界面仍可切换模型与格式，
+        # 不能等回调回来再读，否则文件名/扩展名会与实际音频不符
+        self._pending = _PendingSynth(
+            voice_name=self.config_panel.voice_name or model["short"],
+            model_id=model["id"],
+            audio_format=self.state.audio_format,
+            output_dir=self.state.output_dir,
+            filename_pattern=self.state.filename_pattern,
+            auto_play=self.state.auto_play,
+        )
+
         self.player.stop()
         # 上一次试听可能还在轮询，一并停掉：合成期间没有播放位置可报，
         # 若让定时器继续跑，它会把刚设好的 synth 覆盖掉（见 _on_tick 的守卫）
@@ -263,19 +294,22 @@ class App(QMainWindow):
         task.start()
 
     def _on_synthesized(self, audio: bytes) -> None:
-        """后台线程已拿到音频：落盘并装载，界面回到可用状态。"""
+        """后台线程已拿到音频：按发起时的快照落盘并装载，界面回到可用状态。"""
         self._task = None
-        model = self.state.model
-        draft = self.state.draft()
+        pending = self._pending
+        self._pending = None
+        if pending is None:
+            # 理论上走不到；真到了也只是没有参数可用，宁可不动界面
+            return
 
         try:
             path = output.save_audio(
                 audio,
-                self.state.output_dir,
-                self.state.filename_pattern,
-                voice_name=self.config_panel.voice_name or model["short"],
-                model_id=model["id"],
-                audio_format=self.state.audio_format,
+                pending.output_dir,
+                pending.filename_pattern,
+                voice_name=pending.voice_name,
+                model_id=pending.model_id,
+                audio_format=pending.audio_format,
             )
         except OSError as exc:
             self.player_bar.set_state("idle")
@@ -292,13 +326,14 @@ class App(QMainWindow):
         self.player_bar.set_state("ready")
         self.player_bar.set_position(0.0, self.player.duration())
 
-        if self.state.auto_play:
+        if pending.auto_play:
             self.on_play()
         else:
             self._warn(f"已保存到 {path}", title="合成完成", icon=QMessageBox.Information)
 
     def _on_synthesize_failed(self, message: str) -> None:
         self._task = None
+        self._pending = None
         self.player_bar.set_state("idle")
         self._warn(message, title="合成失败")
 
@@ -382,6 +417,7 @@ class App(QMainWindow):
             # 这里先把回调摘掉，避免结果回来时窗口已经在销毁中
             self._task.cancel()
             self._task = None
+            self._pending = None
         self._tick_timer.stop()
         self.player.close()
         super().closeEvent(event)
