@@ -20,9 +20,6 @@ import urllib.request
 from .. import catalog
 from .base import SynthesisError, TTSProvider
 
-# 音色复刻样本在 base64 之后的体积上限（文档要求）
-_MAX_SAMPLE_B64 = catalog.MAX_SAMPLE_BYTES
-
 
 def _decode_error_body(raw: bytes) -> str:
     """从错误响应体里尽力取出一句可读的说明。
@@ -54,12 +51,15 @@ def _encode_sample(path: str) -> str:
     if not os.path.exists(path):
         raise SynthesisError(f"音频样本不存在：{path}")
 
-    size = os.path.getsize(path)
-    if size > _MAX_SAMPLE_B64:
-        raise SynthesisError(f"音频样本 {size / 1024 / 1024:.1f}MB，超过 10MB 上限。")
-
     with open(path, "rb") as handle:
         encoded = base64.b64encode(handle.read()).decode("ascii")
+
+    # 上限判的是编码后的字符串长度（文档口径），不是原始文件大小。
+    # 直接量编码结果最准，也省得自己算 4/3 的膨胀系数。
+    if len(encoded) > catalog.MAX_SAMPLE_B64_CHARS:
+        raise SynthesisError(
+            f"音频样本编码后 {len(encoded) / 1024 / 1024:.1f}MB，超过 10MB 上限。"
+        )
     return f"data:{catalog.sample_mime_for(path)};base64,{encoded}"
 
 
