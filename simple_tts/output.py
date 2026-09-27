@@ -11,18 +11,27 @@
 追加。用户若在模式里自己写了 .wav，它也只是一段普通文字（后果是出现
 `xxx.wav.wav`）—— 不去猜测哪一段是用户写的扩展名，就不会吃掉 `mimo-v2.5-tts`
 里 `.5-tts` 这类带点的名字。
+
+同名文件默认自动改名而不覆盖；save_audio 的 on_conflict 参数可接管这一决策
+（见该函数的说明）。
 """
 
 from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable
 from datetime import datetime
 
 # Windows 文件名禁用字符，以及控制字符
 _ILLEGAL_RE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 # 模式里可用的占位符
 _PLACEHOLDERS = ("ts", "voice", "model", "index")
+
+# 同名文件已存在时，询问回调可返回的三种处置
+CONFLICT_OVERWRITE = "overwrite"  # 覆盖旧文件，不再改名
+CONFLICT_RENAME = "rename"  # 走默认的 _2、_3 逻辑
+CONFLICT_CANCEL = "cancel"  # 放弃本次保存
 
 
 def timestamp_slug() -> str:
@@ -87,11 +96,14 @@ def save_audio(
     voice_name: str,
     model_id: str,
     audio_format: str,
-) -> str:
-    """把音频写入目录，返回实际落盘的完整路径。
+    on_conflict: Callable[[str], str] | None = None,
+) -> str | None:
+    """把音频写入目录，返回实际落盘的完整路径；用户取消保存时返回 None。
 
-    同名文件不弹窗询问，也不覆盖：模式里带 {index} 时递增序号，
-    不带时在扩展名前追加 _2、_3，直到找到空位。
+    同名文件默认不覆盖也不询问：模式里带 {index} 时递增序号，不带时在扩展名前
+    追加 _2、_3，直到找到空位。若传了 on_conflict，则在发现同名时把已占用的
+    路径交给它，由它返回 CONFLICT_OVERWRITE / CONFLICT_RENAME / CONFLICT_CANCEL
+    决定怎么处理 —— 只问一次，用户选了「另存为」就不再反复弹窗。
     """
     directory = directory or "."
     os.makedirs(directory, exist_ok=True)
@@ -113,9 +125,20 @@ def save_audio(
         return f"{stem}.{suffix}"
 
     path = os.path.join(directory, candidate(index))
-    while os.path.exists(path):
-        index += 1
-        path = os.path.join(directory, candidate(index))
+    if on_conflict is not None and os.path.exists(path):
+        decision = on_conflict(path)
+        if decision == CONFLICT_CANCEL:
+            return None
+        if decision == CONFLICT_OVERWRITE:
+            pass  # 直接用这个名字，下面的 os.replace 会覆盖旧文件
+        else:
+            while os.path.exists(path):
+                index += 1
+                path = os.path.join(directory, candidate(index))
+    else:
+        while os.path.exists(path):
+            index += 1
+            path = os.path.join(directory, candidate(index))
 
     # 先写临时文件再改名：中途失败不会留下一个内容不完整的音频文件
     temp_path = path + ".part"

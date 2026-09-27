@@ -310,10 +310,18 @@ class App(QMainWindow):
                 voice_name=pending.voice_name,
                 model_id=pending.model_id,
                 audio_format=pending.audio_format,
+                on_conflict=self._resolve_overwrite if self.state.confirm_overwrite else None,
             )
         except OSError as exc:
             self.player_bar.set_state("idle")
             self._warn(f"音频保存失败：{exc}")
+            return
+
+        if path is None:
+            # 用户在覆盖询问里选了取消：这次结果不落盘，回到发起前的可用状态。
+            # 上一个文件仍装载在播放器里，所以是 ready 而不是 idle。
+            self.player_bar.set_state("ready" if self._current_file else "idle")
+            self.player_bar.set_position(0.0, self.player.duration())
             return
 
         self._current_file = path
@@ -401,6 +409,28 @@ class App(QMainWindow):
         )
 
     # ================================================================ 内部
+
+    def _resolve_overwrite(self, path: str) -> str:
+        """落盘发现同名时询问用户，返回 output 里约定的三种处置之一。
+
+        默认按钮给「另存为副本」：误按回车不该把已有文件覆盖掉。
+        """
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("文件已存在")
+        box.setText(f"文件已存在：\n{path}")
+        overwrite = box.addButton("覆盖", QMessageBox.DestructiveRole)
+        rename = box.addButton("另存为副本", QMessageBox.AcceptRole)
+        box.addButton("取消", QMessageBox.RejectRole)
+        box.setDefaultButton(rename)
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked is overwrite:
+            return output.CONFLICT_OVERWRITE
+        if clicked is rename:
+            return output.CONFLICT_RENAME
+        return output.CONFLICT_CANCEL
 
     def _warn(self, message: str, title: str = "提示", icon: QMessageBox.Icon = QMessageBox.Warning) -> None:
         box = QMessageBox(self)
