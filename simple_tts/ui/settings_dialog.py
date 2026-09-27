@@ -1,7 +1,8 @@
 """设置页。
 
-顶层页序与菜单「设置」中各项一一对应：通用 / 供应商 / API KEY。
-「供应商」页决定当前启用哪一家，「API KEY」页则按供应商分标签各存一份 Key。
+顶层页序与菜单「设置」中各项一一对应：通用 / 供应商 / API KEY / 更新。
+「供应商」页决定当前启用哪一家，「API KEY」页则按供应商分标签各存一份 Key，
+「更新」页管自动检查开关与 GitHub 加速代理列表。
 
 配置存在内存中的 AppState 里，点「确定」写回后即生效，并随即存进
 userdata/settings.json；重启后自动读回。API Key 经 DPAPI 用当前 Windows
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLineEdit,
+    QPlainTextEdit,
     QPushButton,
     QRadioButton,
     QSpinBox,
@@ -28,13 +30,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import catalog
+from .. import catalog, updater
 from . import theme
 
 _NOTE = "配置更改会在重启后保留，存于程序目录下的 userdata/。"
 
 # 顶层页的 key 与标签，页序即菜单「设置」里的展示顺序
-_PAGES = (("general", "  通用  "), ("provider", "  供应商  "), ("api", "  API KEY  "))
+_PAGES = (
+    ("general", "  通用  "),
+    ("provider", "  供应商  "),
+    ("api", "  API KEY  "),
+    ("update", "  更新  "),
+)
 
 
 class SettingsDialog(QDialog):
@@ -88,6 +95,8 @@ class SettingsDialog(QDialog):
             return self._build_general_page(parent)
         if key == "provider":
             return self._build_provider_page(parent)
+        if key == "update":
+            return self._build_update_page(parent)
         return self._build_api_page(parent)
 
     def _build_general_page(self, parent) -> QWidget:
@@ -170,6 +179,39 @@ class SettingsDialog(QDialog):
             self._provider_buttons[provider["id"]] = button
             layout.addWidget(button)
             layout.addWidget(theme.hint(page, f"接口基地址：{provider['base_url']}"))
+
+        layout.addStretch(1)
+        return page
+
+    def _build_update_page(self, parent) -> QWidget:
+        page = QWidget(parent)
+        layout = QVBoxLayout(page)
+        layout.setSpacing(theme.GAP)
+
+        self._auto_update_check = QCheckBox("启动时自动检查更新（每天至多一次）", page)
+        layout.addWidget(self._auto_update_check)
+
+        layout.addWidget(theme.title(page, "GitHub 加速代理"))
+        layout.addWidget(
+            theme.hint(
+                page,
+                "每行一个前缀，用法为「前缀 + GitHub 链接」。检查更新时直连 GitHub"
+                "（会走系统代理）与这些前缀同时尝试，取最快的一个。清空则只走直连。",
+                wrap=True,
+            )
+        )
+
+        self._mirror_edit = QPlainTextEdit(page)
+        self._mirror_edit.setFixedHeight(self.fontMetrics().lineSpacing() * 7)
+        layout.addWidget(self._mirror_edit)
+
+        row = QHBoxLayout()
+        row.setSpacing(theme.GAP)
+        reset = QPushButton("恢复默认", page)
+        reset.clicked.connect(self._reset_mirrors)
+        row.addWidget(reset)
+        row.addWidget(theme.hint(page, "代理站点寿命不定，失效了可以在这里删掉或换一个。", wrap=True), 1)
+        layout.addLayout(row)
 
         layout.addStretch(1)
         return page
@@ -259,6 +301,9 @@ class SettingsDialog(QDialog):
         self._history_check.setChecked(self._state.keep_history)
         self._overwrite_check.setChecked(self._state.confirm_overwrite)
 
+        self._auto_update_check.setChecked(self._state.update_auto_check)
+        self._mirror_edit.setPlainText("\n".join(self._state.update_mirrors))
+
         self._sync_api_page()
 
     def _collect_format(self) -> str:
@@ -289,6 +334,9 @@ class SettingsDialog(QDialog):
         state.auto_play = self._autoplay_check.isChecked()
         state.keep_history = self._history_check.isChecked()
         state.confirm_overwrite = self._overwrite_check.isChecked()
+        state.update_auto_check = self._auto_update_check.isChecked()
+        # 用户手输的前缀也在这里规整：补斜杠、去重、剔掉不是 http 开头的行
+        state.update_mirrors = updater.normalize_mirrors(self._mirror_edit.toPlainText().splitlines())
         self.accept()
 
     # ================================================================ 内部
@@ -308,6 +356,9 @@ class SettingsDialog(QDialog):
             if item["id"] == provider["id"]:
                 self._key_notebook.setCurrentIndex(index)
                 return
+
+    def _reset_mirrors(self) -> None:
+        self._mirror_edit.setPlainText("\n".join(catalog.DEFAULT_UPDATE_MIRRORS))
 
     def _pick_dir(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "选择保存目录", self._dir_edit.text() or "")

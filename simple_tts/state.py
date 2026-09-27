@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from . import catalog
 
 
-def _program_dir() -> str:
+def program_dir() -> str:
     """程序所在目录，即 userdata 的落点。
 
     冻结成 exe 后 `__file__` 指向 PyInstaller 解出来的临时目录（onefile 模式下
@@ -30,11 +30,12 @@ def userdata_dir() -> str:
     """程序自用的数据目录。所有需要落盘的东西都收敛在这里。
 
     跟着程序走而不是跟着系统用户目录走，是为了让整个软件连同产物都在一个
-    文件夹内，拷贝/删除互不影响。里面目前有三样：output/ 放合成产物的临时
-    文件，save/ 放用户保存下来的音频，settings.json 放配置。目录按需创建
-    （见 output.save_audio、storage.save），不在这里做任何磁盘操作。
+    文件夹内，拷贝/删除互不影响。里面目前有四样：output/ 放合成产物的临时
+    文件，save/ 放用户保存下来的音频，update/ 放下载中的更新包，
+    settings.json 放配置。目录按需创建（见 output.save_audio、storage.save），
+    不在这里做任何磁盘操作。
     """
-    return os.path.join(_program_dir(), "userdata")
+    return os.path.join(program_dir(), "userdata")
 
 
 def settings_path() -> str:
@@ -50,6 +51,11 @@ def temp_output_dir() -> str:
     也不出现在界面上 —— 换个位置对用户没有意义，反而多一个填错的机会。
     """
     return os.path.join(userdata_dir(), "output")
+
+
+def update_dir() -> str:
+    """更新包的下载与解压目录。只在更新期间存在，启动时整个清掉（见 updater.cleanup）。"""
+    return os.path.join(userdata_dir(), "update")
 
 
 def _default_save_dir() -> str:
@@ -108,6 +114,16 @@ class AppState:
     auto_play: bool = True
     keep_history: bool = False
     confirm_overwrite: bool = True
+
+    # ---- 更新
+    # 启动时是否自动检查更新；自动检查每天至多一次（见 update_last_check）
+    update_auto_check: bool = True
+    # 上次自动检查的时间（Unix 秒）。无论成败都记，失败后也不会在当天反复重试
+    update_last_check: int = 0
+    # 用户点过「忽略此版本」的版本号，自动检查时遇到它不再提示；手动检查照常提示
+    update_skip_version: str = ""
+    # GitHub 加速代理前缀，按顺序与直连一起并发尝试
+    update_mirrors: list[str] = field(default_factory=lambda: list(catalog.DEFAULT_UPDATE_MIRRORS))
 
     # ---- API Key：按供应商 id 各存一份，切换供应商不会互相覆盖。
     # 落盘时整份经 DPAPI 加密，不以明文写入 settings.json（见 storage.py）

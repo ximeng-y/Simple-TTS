@@ -5,3 +5,6 @@ __pycache__/
 .venv/
 .XMTEMP/
 userdata/
+build/
+dist/
+*.spec

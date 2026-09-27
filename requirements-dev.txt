@@ -7,3 +7,7 @@
 # 其中含 Qt Charts、Data Visualization、Virtual Keyboard 等 GPL-only 模块；
 # Essentials 的 Core/Gui/Widgets 全是 LGPLv3，本项目只用到 Widgets。
 PySide6-Essentials==6.11.2
+
+# 只用于打包发版（tools/build_release.py 会调它），运行期不需要。
+# 用法见 AGENTS.md「发版流程」。
+PyInstaller==6.22.3

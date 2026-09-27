@@ -194,3 +194,23 @@ VOICE_DESC_HINTS = [
 # ---------------------------------------------------------------- 外部链接
 
 DOC_URL = "https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/audio/speech-synthesis-v2.5"
+
+# ---------------------------------------------------------------- 更新
+
+# GitHub 仓库，owner/repo 形式。检查更新读它 releases/latest 下的 latest.json
+UPDATE_REPO = "ximeng-y/Simple-TTS"
+RELEASES_PAGE = f"https://github.com/{UPDATE_REPO}/releases/latest"
+
+# 默认的 GitHub 加速代理前缀，用法是「前缀 + 完整 GitHub URL」。
+# 这类站点寿命不定，因此只作默认值：设置页里用户可以增删（存进 update_mirrors）。
+# 直连 GitHub 不在此列 —— 它总是第一个被尝试的来源，不可删除。
+DEFAULT_UPDATE_MIRRORS = (
+    "https://gh.llkk.cc/",
+    "https://gh-proxy.com/",
+    "https://ghproxy.net/",
+    "https://ghfast.top/",
+)
+
+# Gitee 镜像仓库，owner/repo 形式；空串表示不启用。
+# 启用前需在 Gitee 建同名 release（tag、附件与 GitHub 完全一致），见 AGENTS.md「发版流程」。
+GITEE_REPO = ""

@@ -27,14 +27,25 @@ import json
 import os
 from ctypes import wintypes
 
-from . import catalog
+from . import catalog, updater
 
 # 落盘的普通配置项。字段名即 JSON 键名，不另立一套键名免得两边对不上。
-STR_KEYS = ("provider_id", "model_id", "save_dir", "filename_pattern", "audio_format")
-BOOL_KEYS = ("auto_play", "keep_history", "confirm_overwrite")
+STR_KEYS = (
+    "provider_id",
+    "model_id",
+    "save_dir",
+    "filename_pattern",
+    "audio_format",
+    "update_skip_version",
+)
+BOOL_KEYS = ("auto_play", "keep_history", "confirm_overwrite", "update_auto_check")
 # 整型配置项。读回时只认非负整数：负数条数上限没有意义，字符串 "10"
 # 也不替它转 —— 与其余各项一样，类型不符就当作没写，留默认值。
-INT_KEYS = ("temp_limit",)
+INT_KEYS = ("temp_limit", "update_last_check")
+# 列表型配置项：项只认字符串，其余元素丢掉；整项类型不符（不是 list）就当没写。
+# 值还要经 updater.normalize_mirrors 规整（补斜杠、去重、剔除非 http 项），
+# 因此这里不直接 setattr。空列表是合法值 —— 用户删光代理就是「只走直连」。
+LIST_KEYS = ("update_mirrors",)
 
 # 密钥在文件里的键名。与普通项不同名，是为了让「密文被当成明文读出来」
 # 这类错误没法悄悄发生。
@@ -148,6 +159,9 @@ def _to_dict(state) -> dict:
     data: dict[str, object] = {
         key: getattr(state, key) for key in STR_KEYS + BOOL_KEYS + INT_KEYS
     }
+    # 列表项拷一份再写：写出去的快照不该和内存里那份共享同一个 list
+    for key in LIST_KEYS:
+        data[key] = list(getattr(state, key))
     data[SECRETS_KEY] = _pack_keys(state.api_keys)
     return data
 
@@ -171,6 +185,10 @@ def _apply(state, data: dict) -> None:
         # 先排掉 bool：Python 里 True 也是 int，不挡会让它变成条数上限 1
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
             setattr(state, key, value)
+    for key in LIST_KEYS:
+        value = data.get(key)
+        if isinstance(value, list):
+            setattr(state, key, updater.normalize_mirrors(v for v in value if isinstance(v, str)))
 
     state.api_keys = _unpack_keys(data.get(SECRETS_KEY))
 

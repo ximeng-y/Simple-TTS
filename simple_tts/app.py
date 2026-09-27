@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import time
 import webbrowser
 from dataclasses import dataclass
 
@@ -23,7 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, catalog, output, storage
+from . import __version__, catalog, output, storage, updater
 from .player import AudioPlayer
 from .providers import MiMoProvider
 from .state import AppState, settings_path, temp_output_dir
@@ -35,6 +36,8 @@ from .ui.player_bar import PlayerBar
 from .ui.settings_dialog import SettingsDialog
 from .ui.style_panel import StylePanel, StylePanelScrollArea
 from .ui.text_panel import TextPanel
+from .ui.update_dialog import UpdateDialog
+from .update_task import CheckTask, DownloadTask
 
 _WINDOW_TITLE = "Simple TTS"
 # 默认宽度写死，高度按布局实际需求算（见 App._default_size）；
@@ -48,6 +51,9 @@ _RIGHT_COL_W = theme.RIGHT_COL_W
 # 播放位置的轮询间隔（毫秒）。MCI 没有回调，只能定时问；
 # 100ms 足够让进度条看起来连续，开销也远小于一次界面重绘。
 _TICK_MS = 100
+
+# 自动检查更新的最小间隔：一天。按「上次检查的时间戳」判，软件一天开多次也只查一次
+_DAY_SECONDS = 86400
 
 
 @dataclass(frozen=True)
@@ -73,6 +79,9 @@ class App(QMainWindow):
         self.state = AppState()
         # 上次运行留下的配置，读在装机之前：下面的界面构建与载入都是按它来摆的
         storage.load(settings_path(), self.state)
+        # 上次替换若没跑完，更新目录还留着（里面有结果标记文件）。
+        # 必须在界面建好之后再提示，这里先只取结果
+        update_failed = updater.cleanup()
         self.player = AudioPlayer()
         self.provider = MiMoProvider()
 
@@ -85,6 +94,17 @@ class App(QMainWindow):
         # 与 _current_file 同生共死：换了一份文件，这条记录就作废
         self._saved_target: str | None = None
 
+        # ---- 更新
+        self._check_task: CheckTask | None = None
+        self._download_task: DownloadTask | None = None
+        # 最近一次检查到的清单与按快慢排好的下载来源，点「立即更新」时用
+        self._update_manifest: dict | None = None
+        self._update_sources: list | None = None
+        # 已解压就绪、待替换的目录。非 None 就说明关窗时该把它装上
+        self._staged_update: str | None = None
+        # 懒创建后复用同一个对话框，避免反复弹新窗口
+        self._update_dialog: UpdateDialog | None = None
+
         self.setWindowTitle(_WINDOW_TITLE)
 
         self._build_menu()
@@ -96,6 +116,19 @@ class App(QMainWindow):
         self._tick_timer = QTimer(self)
         self._tick_timer.setInterval(_TICK_MS)
         self._tick_timer.timeout.connect(self._on_tick)
+
+        if update_failed:
+            # 排到事件循环里再弹，免得抢在主窗口显示之前
+            QTimer.singleShot(
+                0,
+                lambda: self._warn(
+                    "上次更新未能完成，软件仍是旧版本。\n"
+                    "可在「帮助 → 检查更新」重试，或到发布页手动下载。"
+                ),
+            )
+        # 自动检查每天至多一次，且延后几秒，不跟启动时的界面构建抢时间
+        if self.state.update_auto_check and time.time() - self.state.update_last_check >= _DAY_SECONDS:
+            QTimer.singleShot(3000, lambda: self.on_check_update(manual=False))
 
     # ================================================================ 构建
 
@@ -115,6 +148,10 @@ class App(QMainWindow):
         docs_action = QAction("API 使用文档", self)
         docs_action.triggered.connect(self.on_open_docs)
         help_menu.addAction(docs_action)
+
+        update_action = QAction("检查更新…", self)
+        update_action.triggered.connect(lambda _checked=False: self.on_check_update(manual=True))
+        help_menu.addAction(update_action)
 
         about_action = QAction("关于", self)
         about_action.triggered.connect(self.on_about)
@@ -455,6 +492,134 @@ class App(QMainWindow):
             return
         self.player_bar.set_position(self.player.position(), duration)
 
+    # ================================================================ 更新
+
+    def on_check_update(self, manual: bool) -> None:
+        """检查更新。manual 为 True 表示用户点的菜单，失败与「已是最新」都要有反馈。"""
+        if self._staged_update is not None:
+            # 已经下好等重启了，不必再查一遍
+            if manual:
+                self._ensure_update_dialog().show_ready()
+            return
+        if self._download_task is not None:
+            # 下载中，把对话框拉回前台即可（它停在进度页）
+            if manual:
+                self._ensure_update_dialog().show()
+            return
+        if self._check_task is not None:
+            return
+
+        if not manual:
+            # 无论成败都记下时间：失败后不该在当天反复重试
+            self.state.update_last_check = int(time.time())
+
+        task = CheckTask(updater.build_sources(self.state.update_mirrors))
+        task.signals.done.connect(lambda manifest, sources: self._on_update_checked(manual, manifest, sources))
+        task.signals.failed.connect(lambda message: self._on_update_check_failed(manual, message))
+        self._check_task = task
+        task.start()
+
+    def _on_update_checked(self, manual: bool, manifest: dict, sources: list) -> None:
+        self._check_task = None
+        if not updater.is_newer(manifest["version"]):
+            # 没有新版就把上次留下的清单清掉，免得之后误用一份过期的下载地址
+            self._update_manifest = None
+            self._update_sources = None
+            if manual:
+                self._ensure_update_dialog().show_latest()
+            return
+        if not manual and manifest["version"] == self.state.update_skip_version:
+            # 用户点过「忽略此版本」，自动检查不再打扰；手动检查照常提示
+            return
+        self._update_manifest = manifest
+        self._update_sources = sources
+        self._ensure_update_dialog().show_found(
+            manifest["version"], manifest["notes"], updater.can_self_update()
+        )
+
+    def _on_update_check_failed(self, manual: bool, message: str) -> None:
+        self._check_task = None
+        if manual:
+            self._ensure_update_dialog().show_error(f"检查更新失败：\n{message}")
+
+    def on_update_download(self) -> None:
+        """开始下载更新包，下完自动解压。"""
+        if self._download_task is not None or self._update_manifest is None:
+            return
+        manifest = self._update_manifest
+        sources = self._update_sources or []
+        if not sources:
+            return
+
+        task = DownloadTask(manifest, sources)
+        task.signals.progress.connect(lambda done, total, name: self._ensure_update_dialog().show_progress(done, total, name))
+        task.signals.done.connect(self._on_update_staged)
+        task.signals.failed.connect(self._on_update_download_failed)
+        self._download_task = task
+        # 先摆出 0% 的进度页：线程起来之前就有反馈，不然点完按钮像没反应
+        self._ensure_update_dialog().show_progress(0, manifest["size"], sources[0].name)
+        task.start()
+
+    def on_update_cancel(self) -> None:
+        if self._download_task is not None:
+            self._download_task.cancel()
+            self._download_task = None
+        if self._update_dialog is not None:
+            self._update_dialog.hide()
+
+    def _on_update_staged(self, staged_dir: str) -> None:
+        self._download_task = None
+        self._staged_update = staged_dir
+        # 下载期间用户可能把对话框关掉了，这里要重新弹出来 —— 这是用户自己发起的流程，
+        # 结果得让他看见
+        self._ensure_update_dialog().show_ready()
+
+    def _on_update_download_failed(self, message: str) -> None:
+        self._download_task = None
+        if message == "已取消":
+            # 用户自己点的取消，不必再道一次歉
+            return
+        self._ensure_update_dialog().show_error(message)
+
+    def on_update_skip(self) -> None:
+        """忽略此版本：自动检查时不再提示同一个版本号。"""
+        if self._update_manifest is not None:
+            self.state.update_skip_version = self._update_manifest["version"]
+            self._save_settings()
+
+    def on_update_restart_now(self) -> None:
+        """启动替换脚本并退出。脚本会等本进程结束后再覆盖文件，然后重启新版本。"""
+        if self._staged_update is None:
+            return
+        try:
+            updater.launch_apply(self._staged_update, restart=True)
+        except OSError as exc:
+            self._warn(f"无法启动更新程序：\n{exc}")
+            return
+        self._staged_update = None
+        # 走正常关窗流程，配置照常落盘
+        self.close()
+
+    def on_update_restart_later(self) -> None:
+        """稍后重启：保留 _staged_update，关窗时再应用（见 closeEvent）。"""
+        return
+
+    def on_open_releases(self) -> None:
+        webbrowser.open(catalog.RELEASES_PAGE)
+
+    def _ensure_update_dialog(self) -> UpdateDialog:
+        if self._update_dialog is None:
+            self._update_dialog = UpdateDialog(
+                self,
+                on_download=self.on_update_download,
+                on_cancel=self.on_update_cancel,
+                on_skip=self.on_update_skip,
+                on_restart_now=self.on_update_restart_now,
+                on_restart_later=self.on_update_restart_later,
+                on_open_page=self.on_open_releases,
+            )
+        return self._update_dialog
+
     # ================================================================ 菜单动作
 
     def on_settings(self, page: str = "general") -> None:
@@ -542,6 +707,31 @@ class App(QMainWindow):
             self._task.cancel()
             self._task = None
             self._pending = None
+
+        if self._check_task is not None:
+            self._check_task.cancel()
+            self._check_task = None
+        if self._download_task is not None:
+            self._download_task.cancel()
+            self._download_task = None
+
+        if self._staged_update is not None:
+            # 下好且校验过的新版本不浪费：这里以「不重启」方式装上，
+            # 下次用户自己打开软件就是新版本了。失败也不弹窗 —— 关窗时打扰人没意义，
+            # 顶多是下次启动再下一遍
+            try:
+                updater.launch_apply(self._staged_update, restart=False)
+            except OSError:
+                pass
+            self._staged_update = None
+
+        if self._update_dialog is not None:
+            # 用 hide 而非 close：本类退出时 close 会走进对话框自己的 closeEvent，
+            # 把「×」当成用户表态 —— 那样关软件会莫名其妙地把当前版本记成「已忽略」。
+            # 进程马上结束，不留引用即可
+            self._update_dialog.hide()
+            self._update_dialog = None
+
         self._tick_timer.stop()
         self.player.close()
         super().closeEvent(event)
