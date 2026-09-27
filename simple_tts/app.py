@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 import webbrowser
 from dataclasses import dataclass
 
@@ -25,7 +26,7 @@ from PySide6.QtWidgets import (
 from . import __version__, catalog, output, storage
 from .player import AudioPlayer
 from .providers import MiMoProvider
-from .state import AppState, settings_path
+from .state import AppState, settings_path, temp_output_dir
 from .synth import SynthesisTask
 from .ui import theme
 from .ui.config_panel import ConfigPanel
@@ -61,7 +62,6 @@ class _PendingSynth:
     voice_name: str
     model_id: str
     audio_format: str
-    output_dir: str
     filename_pattern: str
     auto_play: bool
 
@@ -81,6 +81,9 @@ class App(QMainWindow):
         self._pending: _PendingSynth | None = None
         # 最近一次成功落盘的文件路径；None 表示还没有可试听的文件
         self._current_file: str | None = None
+        # 当前文件已被「保存」到的路径；None 表示这份还没保存过。
+        # 与 _current_file 同生共死：换了一份文件，这条记录就作废
+        self._saved_target: str | None = None
 
         self.setWindowTitle(_WINDOW_TITLE)
 
@@ -165,6 +168,7 @@ class App(QMainWindow):
             on_synthesize=self.on_synthesize,
             on_play=self.on_play,
             on_stop=self.on_stop,
+            on_save=self.on_save_copy,
             on_seek=self.on_seek,
             on_volume=self.on_volume,
         )
@@ -291,7 +295,6 @@ class App(QMainWindow):
             voice_name=self.config_panel.voice_name or model["short"],
             model_id=model["id"],
             audio_format=self.state.audio_format,
-            output_dir=self.state.output_dir,
             filename_pattern=self.state.filename_pattern,
             auto_play=self.state.auto_play,
         )
@@ -320,7 +323,7 @@ class App(QMainWindow):
         try:
             path = output.save_audio(
                 audio,
-                pending.output_dir,
+                temp_output_dir(),
                 pending.filename_pattern,
                 voice_name=pending.voice_name,
                 model_id=pending.model_id,
@@ -339,10 +342,12 @@ class App(QMainWindow):
             self.player_bar.set_position(0.0, self.player.duration())
             return
 
+        # 换了文件，上一份的「已保存」记录随之作废
         self._current_file = path
+        self._saved_target = None
         if not self.player.load(path):
             self.player_bar.set_state("idle")
-            self._warn(f"已保存到 {path}，但无法播放该音频文件。")
+            self._warn(f"已生成 {path}，但无法播放该音频文件。")
             return
 
         self.player.set_volume(self.player_bar.volume_scale.value())
@@ -352,13 +357,56 @@ class App(QMainWindow):
         if pending.auto_play:
             self.on_play()
         else:
-            self._warn(f"已保存到 {path}", title="合成完成", icon=QMessageBox.Information)
+            self._warn(
+                f"音频已生成，暂存于临时目录：\n{path}\n\n"
+                f"需要留存请点「保存」，将拷贝到 {self.state.save_dir}。",
+                title="合成完成",
+                icon=QMessageBox.Information,
+            )
 
     def _on_synthesize_failed(self, message: str) -> None:
         self._task = None
         self._pending = None
         self.player_bar.set_state("idle")
         self._warn(message, title="合成失败")
+
+    # ================================================================ 保存
+
+    def on_save_copy(self) -> None:
+        """把当前音频拷进保存目录。同一份已保存过则只提示，不重复拷。"""
+        if not self._current_file:
+            return
+        if self._saved_target is not None:
+            self._warn(
+                f"该音频已保存到：\n{self._saved_target}",
+                title="已保存过",
+                icon=QMessageBox.Information,
+            )
+            return
+        if not os.path.exists(self._current_file):
+            self._warn("当前音频文件已不在临时目录，无法保存。")
+            return
+
+        try:
+            target = output.copy_audio(
+                self._current_file,
+                self.state.save_dir,
+                on_conflict=self._resolve_overwrite if self.state.confirm_overwrite else None,
+            )
+        except OSError as exc:
+            self._warn(f"保存失败：{exc}")
+            return
+
+        if target is None:
+            # 用户在覆盖询问里选了取消
+            return
+
+        self._saved_target = target
+        self._warn(
+            f"已保存到：\n{target}",
+            title="保存成功",
+            icon=QMessageBox.Information,
+        )
 
     # ================================================================ 播放
 
