@@ -1,0 +1,9 @@
+# 开发期依赖。
+#
+# 仅用于本地开发与调试，装在项目根的 .venv/ 内（已列入 .gitignore），
+# 不进入版本库、也不作为分发包的一部分。
+#
+# 选 Essentials 而非完整的 PySide6 元包：完整包会带上 Addons，
+# 其中含 Qt Charts、Data Visualization、Virtual Keyboard 等 GPL-only 模块；
+# Essentials 的 Core/Gui/Widgets 全是 LGPLv3，本项目只用到 Widgets。
+PySide6-Essentials==6.11.2

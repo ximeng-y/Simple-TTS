@@ -7,7 +7,15 @@
 
 from __future__ import annotations
 
-from tkinter import ttk
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QSlider,
+    QWidget,
+)
 
 from . import theme
 
@@ -18,52 +26,64 @@ _TICK_MS = 50
 _PLACEHOLDER_TIME = "00:00 / 00:00"
 
 
-class PlayerBar(ttk.Frame):
+class PlayerBar(QWidget):
     def __init__(self, parent, on_synthesize, on_play, on_stop, on_seek, on_volume) -> None:
-        super().__init__(parent, padding=(theme.PAD_L, theme.PAD, theme.PAD_L, theme.PAD))
-        self._on_synthesize = on_synthesize
+        super().__init__(parent)
 
-        self.columnconfigure(1, weight=1)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(theme.PAD_L, theme.PAD, theme.PAD_L, theme.PAD)
+        layout.setSpacing(theme.GAP)
 
         # ---- 合成
-        self.synth_button = ttk.Button(self, text="合成", command=on_synthesize, width=10)
-        self.synth_button.grid(row=0, column=0, sticky="w")
+        self.synth_button = QPushButton("合成", self)
+        self.synth_button.setMinimumWidth(90)
+        self.synth_button.clicked.connect(lambda: on_synthesize())
+        layout.addWidget(self.synth_button)
 
-        self.progress = ttk.Progressbar(self, mode="determinate", maximum=100)
-        self.progress.grid(row=0, column=1, sticky="ew", padx=theme.PAD)
+        self.progress = QProgressBar(self)
+        self.progress.setRange(0, 100)
+        self.progress.setTextVisible(False)
+        layout.addWidget(self.progress, 1)
 
         # ---- 试听控制
-        controls = ttk.Frame(self)
-        controls.grid(row=0, column=2, sticky="e")
+        self.play_button = QPushButton("▶ 试听", self)
+        self.play_button.setMinimumWidth(80)
+        self.play_button.clicked.connect(lambda: on_play())
+        layout.addWidget(self.play_button)
 
-        self.play_button = ttk.Button(controls, text="▶ 试听", command=on_play, width=9)
-        self.play_button.grid(row=0, column=0)
+        self.stop_button = QPushButton("■ 停止", self)
+        self.stop_button.setMinimumWidth(80)
+        self.stop_button.clicked.connect(lambda: on_stop())
+        layout.addWidget(self.stop_button)
 
-        self.stop_button = ttk.Button(controls, text="■ 停止", command=on_stop, width=9)
-        self.stop_button.grid(row=0, column=1, padx=(theme.GAP, theme.PAD))
+        self.seek_scale = QSlider(Qt.Horizontal, self)
+        self.seek_scale.setRange(0, 100)
+        self.seek_scale.setFixedWidth(160)
+        self.seek_scale.setEnabled(False)
+        layout.addWidget(self.seek_scale)
+        # 初始化完成后再接信号：QSlider.setValue() 同样会发 valueChanged，
+        # 提前接会在控件尚未装配进主窗口时就回调到 App。
+        self.seek_scale.valueChanged.connect(on_seek)
 
-        self.seek_scale = ttk.Scale(
-            controls, from_=0, to=100, orient="horizontal", length=160
-        )
-        self.seek_scale.set(0)
-        self.seek_scale.state(["disabled"])
-        self.seek_scale.grid(row=0, column=2)
-        # 初始化完成后再挂回调：ttk.Scale 的 set() 也会触发 command，
-        # 提前挂会在控件尚未装配进主窗口时就回调到 App。
-        self.seek_scale.configure(command=on_seek)
+        self.time_label = theme.hint(self, _PLACEHOLDER_TIME)
+        self.time_label.setMinimumWidth(100)
+        self.time_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.time_label)
 
-        self.time_label = ttk.Label(controls, text=_PLACEHOLDER_TIME, style="Hint.TLabel", width=15)
-        self.time_label.grid(row=0, column=3, padx=theme.GAP)
+        layout.addWidget(theme.hint(self, "音量"))
 
-        ttk.Label(controls, text="音量", style="Hint.TLabel").grid(row=0, column=4)
-        self.volume_scale = ttk.Scale(
-            controls, from_=0, to=100, orient="horizontal", length=90
-        )
-        self.volume_scale.set(80)
-        self.volume_scale.grid(row=0, column=5, padx=(theme.GAP, 0))
-        self.volume_scale.configure(command=on_volume)
+        self.volume_scale = QSlider(Qt.Horizontal, self)
+        self.volume_scale.setRange(0, 100)
+        self.volume_scale.setFixedWidth(90)
+        self.volume_scale.setValue(80)
+        self.volume_scale.valueChanged.connect(on_volume)
+        layout.addWidget(self.volume_scale)
 
-        self._tick_job: str | None = None
+        self._timer = QTimer(self)
+        self._timer.setInterval(_TICK_MS)
+        self._timer.timeout.connect(self._tick)
+
+        self._on_done = None
         self._elapsed_ms = 0
 
     # ================================================================ 对外
@@ -71,23 +91,24 @@ class PlayerBar(ttk.Frame):
     def set_busy(self, busy: bool) -> None:
         """合成期间禁用交互控件，进度条只在忙碌时可见。"""
         if busy:
-            self.synth_button.state(["disabled"])
-            self.play_button.state(["disabled"])
-            self.stop_button.state(["disabled"])
-            self.progress.grid()
-            self.progress["value"] = 0
-            self.time_label.configure(text=_PLACEHOLDER_TIME)
+            self.synth_button.setEnabled(False)
+            self.play_button.setEnabled(False)
+            self.stop_button.setEnabled(False)
+            self.progress.setVisible(True)
+            self.progress.setValue(0)
+            self.time_label.setText(_PLACEHOLDER_TIME)
         else:
-            self.synth_button.state(["!disabled"])
-            self.play_button.state(["!disabled"])
-            self.stop_button.state(["!disabled"])
-            self.progress["value"] = 0
-            self.progress.grid_remove()
+            self.synth_button.setEnabled(True)
+            self.play_button.setEnabled(True)
+            self.stop_button.setEnabled(True)
+            self.progress.setValue(0)
+            self.progress.setVisible(False)
 
     def start_fake_progress(self, on_done) -> None:
         """走一遍假进度后回调 on_done。不做任何真实合成。"""
         self._elapsed_ms = 0
         self._on_done = on_done
+        self._timer.start()
         self._tick()
 
     # ================================================================ 内部
@@ -95,14 +116,11 @@ class PlayerBar(ttk.Frame):
     def _tick(self) -> None:
         self._elapsed_ms += _TICK_MS
         ratio = min(self._elapsed_ms / _FAKE_TOTAL_MS, 1.0)
-        self.progress["value"] = ratio * 100
+        self.progress.setValue(int(ratio * 100))
         if ratio >= 1.0:
-            self._tick_job = None
-            self._on_done()
-            return
-        self._tick_job = self.after(_TICK_MS, self._tick)
+            self._timer.stop()
+            if self._on_done is not None:
+                self._on_done()
 
     def cancel(self) -> None:
-        if self._tick_job is not None:
-            self.after_cancel(self._tick_job)
-            self._tick_job = None
+        self._timer.stop()

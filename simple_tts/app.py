@@ -7,9 +7,18 @@
 
 from __future__ import annotations
 
-import tkinter as tk
 import webbrowser
-from tkinter import messagebox, ttk
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QKeySequence, QShortcut
+from PySide6.QtWidgets import (
+    QDialog,
+    QMainWindow,
+    QMessageBox,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
 
 from . import __version__, catalog
 from .player import AudioPlayer
@@ -23,23 +32,21 @@ from .ui.style_panel import StylePanel
 from .ui.text_panel import TextPanel
 
 _WINDOW_TITLE = "Simple TTS"
-_DEFAULT_GEOMETRY = "1100x880"
+_DEFAULT_SIZE = (1100, 880)
 _MIN_SIZE = (1000, 760)
 _RIGHT_COL_W = theme.RIGHT_COL_W
 
 
-class App(tk.Tk):
+class App(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
 
         self.state = AppState()
         self.player = AudioPlayer()
 
-        self.title(_WINDOW_TITLE)
-        self.geometry(_DEFAULT_GEOMETRY)
-        self.minsize(*_MIN_SIZE)
-
-        theme.apply(ttk.Style(self))
+        self.setWindowTitle(_WINDOW_TITLE)
+        self.resize(*_DEFAULT_SIZE)
+        self.setMinimumSize(*_MIN_SIZE)
 
         self._build_menu()
         self._build_layout()
@@ -49,72 +56,76 @@ class App(tk.Tk):
     # ================================================================ 构建
 
     def _build_menu(self) -> None:
-        # 菜单栏在 Tk 里只有经典 tk.Menu 这一个原语，ttk 无对应控件，此处属必要例外
-        menubar = tk.Menu(self)
+        menubar = self.menuBar()
 
-        file_menu = tk.Menu(menubar, tearoff=False)
-        file_menu.add_command(label="设置…", accelerator="Ctrl+,", command=self.on_settings)
-        file_menu.add_separator()
-        file_menu.add_command(label="退出", command=self.destroy)
-        menubar.add_cascade(label="文件", menu=file_menu)
+        file_menu = menubar.addMenu("文件")
+        settings_action = QAction("设置…", self)
+        settings_action.setShortcut(QKeySequence("Ctrl+,"))
+        settings_action.triggered.connect(self.on_settings)
+        file_menu.addAction(settings_action)
 
-        help_menu = tk.Menu(menubar, tearoff=False)
-        help_menu.add_command(label="API 使用文档", command=self.on_open_docs)
-        help_menu.add_command(label="关于", command=self.on_about)
-        menubar.add_cascade(label="帮助", menu=help_menu)
+        file_menu.addSeparator()
 
-        self.configure(menu=menubar)
+        quit_action = QAction("退出", self)
+        quit_action.triggered.connect(self.close)
+        file_menu.addAction(quit_action)
+
+        help_menu = menubar.addMenu("帮助")
+        docs_action = QAction("API 使用文档", self)
+        docs_action.triggered.connect(self.on_open_docs)
+        help_menu.addAction(docs_action)
+
+        about_action = QAction("关于", self)
+        about_action.triggered.connect(self.on_about)
+        help_menu.addAction(about_action)
 
     def _build_layout(self) -> None:
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
+        central = QWidget(self)
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        self.header = Header(self, on_model_change=self.on_model_change)
-        self.header.grid(row=0, column=0, sticky="ew")
+        self.header = Header(central, on_model_change=self.on_model_change)
+        layout.addWidget(self.header)
 
         # 中栏：左文本弹性伸缩，右配置固定宽度
-        middle = ttk.PanedWindow(self, orient="horizontal")
-        middle.grid(row=1, column=0, sticky="nsew")
+        middle = QSplitter(Qt.Horizontal, central)
+        middle.setChildrenCollapsible(False)
 
         self.text_panel = TextPanel(middle, on_text_change=self.on_text_change)
         self.config_panel = ConfigPanel(middle, self.state, on_sing_toggle=self.on_sing_from_config)
 
-        middle.add(self.text_panel, weight=3)
-        middle.add(self.config_panel, weight=0)
+        middle.addWidget(self.text_panel)
+        middle.addWidget(self.config_panel)
+        middle.setStretchFactor(0, 3)
+        middle.setStretchFactor(1, 0)
+        middle.setSizes([_DEFAULT_SIZE[0] - _RIGHT_COL_W, _RIGHT_COL_W])
+        layout.addWidget(middle, 1)
 
         self.style_panel = StylePanel(
-            self,
+            central,
             on_opening_style=self.on_opening_style,
             on_inline_tag=self.on_inline_tag,
             on_sing=self.on_sing_from_style_panel,
         )
-        self.style_panel.grid(row=2, column=0, sticky="ew", padx=theme.PAD_L, pady=(0, theme.PAD))
+        layout.addWidget(self.style_panel)
 
         self.player_bar = PlayerBar(
-            self,
+            central,
             on_synthesize=self.on_synthesize,
             on_play=self.on_play,
             on_stop=self.on_stop,
             on_seek=self.on_seek,
             on_volume=self.on_volume,
         )
-        self.player_bar.grid(row=3, column=0, sticky="ew")
+        layout.addWidget(self.player_bar)
         self.player_bar.set_busy(False)
 
-        # 右列初始宽度按内容给足，避免长文案被压成两行
-        self.after(0, lambda: self._init_sash(middle))
-
-    def _init_sash(self, paned: ttk.PanedWindow) -> None:
-        try:
-            total = paned.winfo_width()
-            paned.sashpos(0, max(total - _RIGHT_COL_W, 360))
-        except tk.TclError:
-            pass
+        self.setCentralWidget(central)
 
     def _bind_shortcuts(self) -> None:
-        self.bind("<Control-Return>", lambda _e: self.on_synthesize())
-        self.bind("<F5>", lambda _e: self.on_synthesize())
-        self.bind("<Control-comma>", lambda _e: self.on_settings())
+        QShortcut(QKeySequence("Ctrl+Return"), self, activated=self.on_synthesize)
+        QShortcut(QKeySequence("F5"), self, activated=self.on_synthesize)
 
     # ================================================================ 模型联动
 
@@ -195,36 +206,34 @@ class App(tk.Tk):
     def on_stop(self) -> None:
         self.player.stop()
 
-    def on_seek(self, _value: str) -> None:
-        self.player.seek(self.player_bar.seek_scale.get())
+    def on_seek(self, _value: int) -> None:
+        self.player.seek(self.player_bar.seek_scale.value())
 
-    def on_volume(self, value: str) -> None:
-        self.player.set_volume(int(float(value)))
+    def on_volume(self, value: int) -> None:
+        self.player.set_volume(int(value))
 
     # ================================================================ 菜单动作
 
     def on_settings(self) -> None:
         dialog = SettingsDialog(self, self.state)
-        self.wait_window(dialog)
-        if dialog.confirmed:
+        if dialog.exec() == QDialog.Accepted:
             self.config_panel.apply_settings()
 
     def on_open_docs(self) -> None:
         webbrowser.open(catalog.DOC_URL)
 
     def on_about(self) -> None:
-        # messagebox 是 Tk 提供的原生对话框，无 ttk 对应实现
-        messagebox.showinfo(
+        QMessageBox.about(
+            self,
             "关于",
             f"Simple TTS v{__version__}\n\n"
             "轻量级 Windows 桌面文本转语音工具。\n"
             "当前为前端形态演示版本，后端尚未接入。",
-            parent=self,
         )
 
     # ================================================================ 退出
 
-    def destroy(self) -> None:
+    def closeEvent(self, event) -> None:
         self.player_bar.cancel()
         self.player.close()
-        super().destroy()
+        super().closeEvent(event)

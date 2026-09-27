@@ -1,13 +1,17 @@
-"""界面外观：字体探测与间距常量。
+"""界面外观：字体探测、间距常量与两个标签工厂。
 
 中文界面若落到不含中文字形的字体上会显示成方框，因此显式挑一个系统中文字体，
-并通过 ttk.Style().configure(".") 统一应用。
+通过 QApplication.setFont 统一应用。
+
+Qt6 在 Windows 上默认使用 windows11 原生风格（跟随系统浅色/深色），
+不需要像 Tk 那样手动挑主题。
 """
 
 from __future__ import annotations
 
-import tkinter.font as tkfont
-from tkinter import ttk
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtWidgets import QLabel, QWidget
 
 # 间距常量，避免各控件各写各的魔法数字
 PAD = 8
@@ -18,24 +22,41 @@ RIGHT_COL_W = 320
 # 依次尝试，取第一个系统里存在的
 _PREFERRED_FONTS = ("Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", "Tahoma")
 
+# 提示文字与标题文字的字号（基准字号为 9）
+_TITLE_POINT_SIZE = 10
 
-def pick_font() -> str:
+_HINT_STYLE = "color: #666666;"
+
+
+def pick_font_family() -> str:
     """返回系统中可用的首选中文字体族名。"""
-    available = set(tkfont.families())
+    available = set(QFontDatabase.families())
     for family in _PREFERRED_FONTS:
         if family in available:
             return family
-    return "TkDefaultFont"
+    return QFont().defaultFamily()
 
 
-def apply(style: ttk.Style) -> None:
-    """选定主题并统一字体。需在创建控件之前调用。"""
-    # vista 主题调用 Windows 原生 Visual Styles 渲染，外观跟随系统
-    if "vista" in style.theme_names():
-        style.theme_use("vista")
+def apply(app) -> None:
+    """选定字体并设置全局样式。需在创建控件之前调用。"""
+    app.setFont(QFont(pick_font_family(), 9))
 
-    family = pick_font()
-    style.configure(".", font=(family, 9))
-    style.configure("Hint.TLabel", foreground="#666666")
-    style.configure("Title.TLabel", font=(family, 9, "bold"))
-    style.configure("Heading.TLabel", font=(family, 10, "bold"))
+
+def hint(parent: QWidget, text: str = "", wrap: bool = False) -> QLabel:
+    """灰色小字说明，对应原 ttk 的 Hint.TLabel。"""
+    label = QLabel(text, parent)
+    label.setStyleSheet(_HINT_STYLE)
+    label.setWordWrap(wrap)
+    label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+    return label
+
+
+def title(parent: QWidget, text: str = "", wrap: bool = False) -> QLabel:
+    """加粗小节标题，对应原 ttk 的 Title.TLabel。"""
+    label = QLabel(text, parent)
+    font = label.font()
+    font.setBold(True)
+    label.setFont(font)
+    label.setWordWrap(wrap)
+    label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+    return label

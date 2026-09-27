@@ -10,117 +10,137 @@
 
 from __future__ import annotations
 
-from tkinter import ttk
-import tkinter as tk
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QPushButton,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .. import catalog
 from . import theme
 
 # 每组最多 9 个按钮排成一行，超出的换行
 _COLUMNS = 9
-_BUTTON_WIDTH = 9
-_LABEL_WIDTH = 9
+# 原 Tk 版的宽度以字符计，换算成像素的最小宽度
+_BUTTON_PX = 78
+_LABEL_PX = 78
 
 
-class StylePanel(ttk.LabelFrame):
+class StylePanel(QGroupBox):
     def __init__(self, parent, on_opening_style, on_inline_tag, on_sing) -> None:
-        super().__init__(parent, text=" 风格辅助 ", padding=(theme.PAD_L, theme.PAD, theme.PAD_L, theme.PAD))
+        super().__init__(" 风格辅助 ", parent)
         self._on_opening_style = on_opening_style
         self._on_inline_tag = on_inline_tag
         self._on_sing = on_sing
 
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(theme.PAD_L, theme.PAD, theme.PAD_L, theme.PAD)
 
-        notebook = ttk.Notebook(self)
-        notebook.grid(row=0, column=0, sticky="nsew")
-        notebook.add(self._build_opening_page(notebook), text="  开头风格  ")
-        notebook.add(self._build_inline_page(notebook), text="  行内标签  ")
+        notebook = QTabWidget(self)
+        notebook.addTab(self._build_opening_page(notebook), "  开头风格  ")
+        notebook.addTab(self._build_inline_page(notebook), "  行内标签  ")
+        layout.addWidget(notebook)
 
     # ================================================================ 开头风格
 
-    def _build_opening_page(self, parent) -> ttk.Frame:
-        page = ttk.Frame(parent, padding=theme.PAD)
-        page.columnconfigure(0, weight=1)
+    def _build_opening_page(self, parent) -> QWidget:
+        page = QWidget(parent)
+        layout = QVBoxLayout(page)
+        layout.setSpacing(theme.GAP)
 
-        ttk.Label(
-            page,
-            text="点击后写入合成文本最开头，形如 (风格1 风格2)正文；再次点击同一项即移除。",
-            style="Hint.TLabel",
-        ).grid(row=0, column=0, columnspan=1 + _COLUMNS, sticky="w", pady=(0, theme.GAP))
-
-        row = 1
+        layout.addWidget(
+            theme.hint(
+                page,
+                "点击后写入合成文本最开头，形如 (风格1 风格2)正文；再次点击同一项即移除。",
+                wrap=True,
+            )
+        )
 
         # 唱歌单独一行：它必须独占文本最开头，不能与其它风格共存
-        sing_cell = ttk.Frame(page)
-        sing_cell.grid(row=row, column=0, columnspan=1 + _COLUMNS, sticky="ew")
-        self._sing_var = tk.BooleanVar(value=False)
-        self._sing_check = ttk.Checkbutton(
-            sing_cell,
-            text="唱歌",
-            variable=self._sing_var,
-            command=self._handle_sing,
-            width=_BUTTON_WIDTH,
+        sing_row = QHBoxLayout()
+        sing_row.setSpacing(theme.GAP)
+        self._sing_check = QCheckBox("唱歌", page)
+        self._sing_check.setMinimumWidth(_BUTTON_PX)
+        self._sing_check.toggled.connect(self._handle_sing)
+        sing_row.addWidget(self._sing_check)
+        sing_row.addWidget(
+            theme.hint(
+                page,
+                "必须在目标文本最开头，且不能与其它风格共存；歌词建议使用中文。",
+            )
         )
-        self._sing_check.grid(row=0, column=0, sticky="w")
-        ttk.Label(
-            sing_cell,
-            text="必须在目标文本最开头，且不能与其它风格共存；歌词建议使用中文。",
-            style="Hint.TLabel",
-        ).grid(row=0, column=1, sticky="w", padx=(theme.PAD, 0))
-        row += 1
+        sing_row.addStretch(1)
+        layout.addLayout(sing_row)
 
-        for group_name, styles in catalog.OPENING_STYLES:
-            self._fill_row(page, row, group_name, styles, self._on_opening_style)
-            row += 1
-
+        grid = QGridLayout()
+        grid.setSpacing(2)
+        for row, (group_name, styles) in enumerate(catalog.OPENING_STYLES):
+            self._fill_row(page, grid, row, group_name, styles, self._on_opening_style)
+        layout.addLayout(grid)
+        layout.addStretch(1)
         return page
 
     # ================================================================ 行内标签
 
-    def _build_inline_page(self, parent) -> ttk.Frame:
-        page = ttk.Frame(parent, padding=theme.PAD)
-        page.columnconfigure(0, weight=1)
+    def _build_inline_page(self, parent) -> QWidget:
+        page = QWidget(parent)
+        layout = QVBoxLayout(page)
+        layout.setSpacing(theme.GAP)
 
-        ttk.Label(
-            page,
-            text="点击后插入到合成文本的光标位置，形如 [哽咽]；可对语气、情绪做细粒度控制。",
-            style="Hint.TLabel",
-        ).grid(row=0, column=0, columnspan=1 + _COLUMNS, sticky="w", pady=(0, theme.GAP))
+        layout.addWidget(
+            theme.hint(
+                page,
+                "点击后插入到合成文本的光标位置，形如 [哽咽]；可对语气、情绪做细粒度控制。",
+                wrap=True,
+            )
+        )
 
-        row = 1
-        for group_name, tags in catalog.INLINE_TAGS:
-            self._fill_row(page, row, group_name, tags, self._on_inline_tag)
-            row += 1
-
+        grid = QGridLayout()
+        grid.setSpacing(2)
+        for row, (group_name, tags) in enumerate(catalog.INLINE_TAGS):
+            self._fill_row(page, grid, row, group_name, tags, self._on_inline_tag)
+        layout.addLayout(grid)
+        layout.addStretch(1)
         return page
 
     # ================================================================ 对外
 
     def set_sing(self, checked: bool) -> None:
-        """由 App 反向同步（例如用户在文本框里手动删掉了 (唱歌) 标签）。"""
-        self._sing_var.set(checked)
+        """由 App 反向同步（例如用户在文本框里手动删掉了 (唱歌) 标签）。
+
+        QCheckBox.setChecked() 会发出 toggled 信号，不屏蔽就会绕回 _handle_sing。
+        """
+        if self._sing_check.isChecked() == checked:
+            return
+        self._sing_check.blockSignals(True)
+        self._sing_check.setChecked(checked)
+        self._sing_check.blockSignals(False)
 
     # ================================================================ 内部
 
-    def _fill_row(self, page: ttk.Frame, row: int, group_name: str, items: list[str], command) -> None:
+    def _fill_row(
+        self, page: QWidget, grid: QGridLayout, row: int, group_name: str, items: list[str], command
+    ) -> None:
         """一组标签占一行：最左是组名，右侧平铺按钮。"""
-        ttk.Label(page, text=group_name, style="Hint.TLabel", width=_LABEL_WIDTH, anchor="w").grid(
-            row=row, column=0, sticky="w", padx=(0, theme.GAP), pady=1
-        )
+        label = theme.hint(page, group_name)
+        label.setMinimumWidth(_LABEL_PX)
+        grid.addWidget(label, row, 0, Qt.AlignLeft)
+
         for index, item in enumerate(items):
-            ttk.Button(
-                page,
-                text=item,
-                width=_BUTTON_WIDTH,
-                command=lambda value=item: command(value),
-            ).grid(
-                row=row + index // _COLUMNS,
-                column=1 + index % _COLUMNS,
-                sticky="ew",
-                padx=1,
-                pady=1,
+            button = QPushButton(item, page)
+            button.setMinimumWidth(_BUTTON_PX)
+            button.clicked.connect(lambda _checked=False, value=item: command(value))
+            grid.addWidget(
+                button,
+                row + index // _COLUMNS,
+                1 + index % _COLUMNS,
             )
 
-    def _handle_sing(self) -> None:
-        self._on_sing(self._sing_var.get())
+    def _handle_sing(self, checked: bool) -> None:
+        self._on_sing(checked)

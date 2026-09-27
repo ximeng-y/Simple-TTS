@@ -3,16 +3,20 @@
 对应文档里的两条消息：
   - user 消息（自然语言控制）-> 上面的「风格指令 / 音色描述」框
   - assistant 消息（待合成文本）-> 下面的「合成文本」框
-
-注：多行文本编辑在 Tk 里只有经典 tk.Text 这一个原语，ttk 没有对应控件，
-    此处与菜单栏一样属于必要例外。
 """
 
 from __future__ import annotations
 
 import re
-import tkinter as tk
-from tkinter import ttk
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QPlainTextEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .. import catalog
 from . import theme
@@ -24,65 +28,58 @@ _OPENING_RE = re.compile(r"^[ \t]*[（(\[]\s*([^）)\]]*?)\s*[）)\]]")
 _SECONDS_PER_CHAR = 0.18
 
 
-class TextPanel(ttk.Frame):
+class TextPanel(QWidget):
     def __init__(self, parent, on_text_change) -> None:
-        super().__init__(parent, padding=(theme.PAD_L, theme.PAD, theme.PAD, theme.PAD))
+        super().__init__(parent)
         self._on_text_change = on_text_change
         self._model = catalog.MODELS[0]
 
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(4, weight=1)  # 合成文本框吃掉多余高度
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(theme.PAD_L, theme.PAD, theme.PAD, theme.PAD)
+        layout.setSpacing(theme.GAP)
 
-        self._build_style_prompt()
-        self._build_text_area()
+        self._build_style_prompt(layout)
+        self._build_text_area(layout)
         self.refresh_labels()
         self._refresh_counter()
 
     # ================================================================ 构建
 
-    def _build_style_prompt(self) -> None:
-        head = ttk.Frame(self)
-        head.grid(row=0, column=0, sticky="ew")
-        head.columnconfigure(0, weight=1)
+    def _build_style_prompt(self, parent_layout: QVBoxLayout) -> None:
+        head = QHBoxLayout()
+        head.setSpacing(theme.GAP)
+        self._style_label = theme.title(self, "风格指令")
+        head.addWidget(self._style_label)
+        head.addStretch(1)
 
-        self._style_label = ttk.Label(head, text="风格指令", style="Title.TLabel")
-        self._style_label.grid(row=0, column=0, sticky="w")
+        template_button = QPushButton("插入导演模式框架", self)
+        template_button.clicked.connect(self.insert_director_template)
+        head.addWidget(template_button)
+        parent_layout.addLayout(head)
 
-        ttk.Button(head, text="插入导演模式框架", command=self.insert_director_template).grid(
-            row=0, column=1, sticky="e"
-        )
+        self._style_hint = theme.hint(self, "", wrap=True)
+        parent_layout.addWidget(self._style_hint)
 
-        self._style_hint = ttk.Label(self, style="Hint.TLabel", anchor="w", justify="left")
-        self._style_hint.grid(row=1, column=0, sticky="ew", pady=(2, theme.GAP))
+        self.style_text = QPlainTextEdit(self)
+        self.style_text.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        self.style_text.setFixedHeight(96)
+        self.style_text.textChanged.connect(self._on_text_change)
+        parent_layout.addWidget(self.style_text)
 
-        self.style_text = tk.Text(
-            self, height=5, wrap="word", undo=True, relief="solid", borderwidth=1
-        )
-        self.style_text.grid(row=2, column=0, sticky="ew")
-        self.style_text.bind("<KeyRelease>", lambda _e: self._on_text_change())
+    def _build_text_area(self, parent_layout: QVBoxLayout) -> None:
+        head = QHBoxLayout()
+        head.setSpacing(theme.GAP)
+        head.addWidget(theme.title(self, "合成文本"))
+        head.addStretch(1)
 
-    def _build_text_area(self) -> None:
-        head = ttk.Frame(self)
-        head.grid(row=3, column=0, sticky="ew", pady=(theme.PAD, 2))
-        head.columnconfigure(0, weight=1)
+        self._counter = theme.hint(self, "")
+        head.addWidget(self._counter)
+        parent_layout.addLayout(head)
 
-        ttk.Label(head, text="合成文本", style="Title.TLabel").grid(row=0, column=0, sticky="w")
-        self._counter = ttk.Label(head, text="", style="Hint.TLabel")
-        self._counter.grid(row=0, column=1, sticky="e")
-
-        holder = ttk.Frame(self)
-        holder.grid(row=4, column=0, sticky="nsew")
-        holder.columnconfigure(0, weight=1)
-        holder.rowconfigure(0, weight=1)
-
-        self.text = tk.Text(
-            holder, height=10, wrap="word", undo=True, relief="solid", borderwidth=1
-        )
-        self.text.grid(row=0, column=0, sticky="nsew")
-        scroll = ttk.Scrollbar(holder, orient="vertical", command=self.text.yview)
-        scroll.grid(row=0, column=1, sticky="ns")
-        self.text.configure(yscrollcommand=scroll.set)
-        self.text.bind("<KeyRelease>", self._handle_text_edit)
+        self.text = QPlainTextEdit(self)
+        self.text.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        self.text.textChanged.connect(self._handle_text_edit)
+        parent_layout.addWidget(self.text, 1)
 
     # ================================================================ 模型联动
 
@@ -93,48 +90,46 @@ class TextPanel(ttk.Frame):
 
     def refresh_labels(self) -> None:
         if self._model["requires_style_prompt"]:
-            self._style_label.configure(text="音色描述（必填）")
-            self._style_hint.configure(
-                text="这段文字即音色设计描述，同时作为 user 消息传入。写 1-4 句核心特征即可，"
+            self._style_label.setText("音色描述（必填）")
+            self._style_hint.setText(
+                "这段文字即音色设计描述，同时作为 user 消息传入。写 1-4 句核心特征即可，"
                 "不要写混响、回声、EQ 等后期处理描述。"
             )
         else:
-            self._style_label.configure(text="风格指令（可选）")
-            self._style_hint.configure(
-                text="用自然语言描述想要的语气与风格，作为 user 消息传入，内容不会出现在合成的语音中；"
+            self._style_label.setText("风格指令（可选）")
+            self._style_hint.setText(
+                "用自然语言描述想要的语气与风格，作为 user 消息传入，内容不会出现在合成的语音中；"
                 "也可用来写对话历史。"
             )
 
     # ================================================================ 风格指令框
 
     def get_style_prompt(self) -> str:
-        return self.style_text.get("1.0", "end-1c")
+        return self.style_text.toPlainText()
 
     def set_style_prompt(self, value: str) -> None:
-        self.style_text.delete("1.0", "end")
-        self.style_text.insert("1.0", value)
+        self._set_plain_text(self.style_text, value)
 
     def insert_director_template(self) -> None:
         """插入导演模式的骨架：从角色 / 场景 / 指导三个维度刻画声线。"""
         if self.get_style_prompt().strip():
-            self.style_text.insert("end", "\n\n" + catalog.DIRECTOR_TEMPLATE)
+            self.style_text.appendPlainText("\n" + catalog.DIRECTOR_TEMPLATE)
         else:
-            self.style_text.insert("1.0", catalog.DIRECTOR_TEMPLATE)
+            self._set_plain_text(self.style_text, catalog.DIRECTOR_TEMPLATE)
 
     # ================================================================ 合成文本框
 
     def get_text(self) -> str:
-        return self.text.get("1.0", "end-1c")
+        return self.text.toPlainText()
 
     def set_text(self, value: str) -> None:
-        self.text.delete("1.0", "end")
-        self.text.insert("1.0", value)
+        self._set_plain_text(self.text, value)
         self._refresh_counter()
 
     def insert_inline(self, tag: str) -> None:
         """在光标处插入行内音频标签。"""
-        self.text.insert("insert", f"[{tag}]")
-        self.text.focus_set()
+        self.text.textCursor().insertText(f"[{tag}]")
+        self.text.setFocus()
         self._refresh_counter()
 
     # ---- 开头风格标签
@@ -181,10 +176,22 @@ class TextPanel(ttk.Frame):
 
     # ================================================================ 内部
 
-    def _handle_text_edit(self, _event) -> None:
+    def _set_plain_text(self, edit: QPlainTextEdit, value: str) -> None:
+        """程序化赋值：屏蔽 textChanged，只在编辑框内容变化时才发出通知。
+
+        这样才与原 Tk 版「set_text 不触发 on_text_change」的语义一致，
+        否则 App._sync_sing_ui 会被反复回调。
+        """
+        if edit.toPlainText() == value:
+            return
+        edit.blockSignals(True)
+        edit.setPlainText(value)
+        edit.blockSignals(False)
+
+    def _handle_text_edit(self, _event=None) -> None:
         self._refresh_counter()
         self._on_text_change()
 
     def _refresh_counter(self) -> None:
         count = len(self.get_text())
-        self._counter.configure(text=f"{count} 字 / 约 {count * _SECONDS_PER_CHAR:.1f} 秒")
+        self._counter.setText(f"{count} 字 / 约 {count * _SECONDS_PER_CHAR:.1f} 秒")
