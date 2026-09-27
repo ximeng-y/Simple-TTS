@@ -12,11 +12,10 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
     QGridLayout,
     QGroupBox,
-    QHBoxLayout,
     QPushButton,
+    QScrollArea,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -32,12 +31,29 @@ _BUTTON_PX = 78
 _LABEL_PX = 78
 
 
+class StylePanelScrollArea(QScrollArea):
+    """风格辅助面板的滚动容器。
+
+    构造后需由外部 setWidget 装入面板并 setMinimumHeight(全高 // 2) 作为压缩下限。
+    """
+
+    def resizeEvent(self, event) -> None:
+        """面板宽度跟随可视区。
+
+        面板用 widgetResizable(False) 装载（这样它不会被 viewport 带着一起缩矮），
+        宽度也就没了人代管，不手动同步会在右侧留出一条空白。
+        """
+        super().resizeEvent(event)
+        panel = self.widget()
+        if panel is not None:
+            panel.resize(max(self.viewport().width(), panel.minimumWidth()), panel.height())
+
+
 class StylePanel(QGroupBox):
-    def __init__(self, parent, on_opening_style, on_inline_tag, on_sing) -> None:
+    def __init__(self, parent, on_opening_style, on_inline_tag) -> None:
         super().__init__(" 风格辅助 ", parent)
         self._on_opening_style = on_opening_style
         self._on_inline_tag = on_inline_tag
-        self._on_sing = on_sing
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(theme.PAD_L, theme.PAD, theme.PAD_L, theme.PAD)
@@ -72,22 +88,6 @@ class StylePanel(QGroupBox):
             )
         )
 
-        # 唱歌单独一行：它必须独占文本最开头，不能与其它风格共存
-        sing_row = QHBoxLayout()
-        sing_row.setSpacing(theme.GAP)
-        self._sing_check = QCheckBox("唱歌", page)
-        self._sing_check.setMinimumWidth(_BUTTON_PX)
-        self._sing_check.toggled.connect(self._handle_sing)
-        sing_row.addWidget(self._sing_check)
-        sing_row.addWidget(
-            theme.hint(
-                page,
-                "必须在目标文本最开头，且不能与其它风格共存；歌词建议使用中文。",
-            )
-        )
-        sing_row.addStretch(1)
-        layout.addLayout(sing_row)
-
         grid = QGridLayout()
         grid.setSpacing(2)
         for row, (group_name, styles) in enumerate(catalog.OPENING_STYLES):
@@ -121,17 +121,6 @@ class StylePanel(QGroupBox):
 
     # ================================================================ 对外
 
-    def set_sing(self, checked: bool) -> None:
-        """由 App 反向同步（例如用户在文本框里手动删掉了 (唱歌) 标签）。
-
-        QCheckBox.setChecked() 会发出 toggled 信号，不屏蔽就会绕回 _handle_sing。
-        """
-        if self._sing_check.isChecked() == checked:
-            return
-        self._sing_check.blockSignals(True)
-        self._sing_check.setChecked(checked)
-        self._sing_check.blockSignals(False)
-
     # ================================================================ 内部
 
     def _fill_row(
@@ -151,6 +140,3 @@ class StylePanel(QGroupBox):
                 row + index // _COLUMNS,
                 1 + index % _COLUMNS,
             )
-
-    def _handle_sing(self, checked: bool) -> None:
-        self._on_sing(checked)

@@ -13,6 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDialog,
+    QFrame,
     QMainWindow,
     QMessageBox,
     QSplitter,
@@ -28,12 +29,14 @@ from .ui.config_panel import ConfigPanel
 from .ui.header import Header
 from .ui.player_bar import PlayerBar
 from .ui.settings_dialog import SettingsDialog
-from .ui.style_panel import StylePanel
+from .ui.style_panel import StylePanel, StylePanelScrollArea
 from .ui.text_panel import TextPanel
 
 _WINDOW_TITLE = "Simple TTS"
 _DEFAULT_SIZE = (1100, 880)
-_MIN_SIZE = (1000, 760)
+# 最小宽度下限（纯观感取值）；高度不写死，由布局实际需求算出，
+# 见 App._build_layout 末尾 —— 字号/缩放不同，写死的高度会让中栏先被裁切。
+_MIN_WIDTH = 1000
 _RIGHT_COL_W = theme.RIGHT_COL_W
 
 
@@ -46,7 +49,6 @@ class App(QMainWindow):
 
         self.setWindowTitle(_WINDOW_TITLE)
         self.resize(*_DEFAULT_SIZE)
-        self.setMinimumSize(*_MIN_SIZE)
 
         self._build_menu()
         self._build_layout()
@@ -100,15 +102,28 @@ class App(QMainWindow):
         middle.setStretchFactor(0, 3)
         middle.setStretchFactor(1, 0)
         middle.setSizes([_DEFAULT_SIZE[0] - _RIGHT_COL_W, _RIGHT_COL_W])
-        layout.addWidget(middle, 1)
+        # 中栏高度固定为其内容高度，窗口上下调整时伸缩全部由风格辅助面板吸收，
+        # 否则文本编辑区会被优先压缩，界面上下失衡
+        middle.setFixedHeight(middle.sizeHint().height())
+        layout.addWidget(middle)
 
+        # 风格辅助面板：widgetResizable(False) 下滚动区不会代管面板尺寸，
+        # 这里显式把面板钉在全高，滚动区的最低高度给到半高 ——
+        # 于是「已压缩即可滚动、压到一半为止」两件事各由一句代码负责。
         self.style_panel = StylePanel(
             central,
             on_opening_style=self.on_opening_style,
             on_inline_tag=self.on_inline_tag,
-            on_sing=self.on_sing_from_style_panel,
         )
-        layout.addWidget(self.style_panel)
+        full = self.style_panel.sizeHint().height()
+        self.style_panel.setFixedHeight(full)
+
+        self.style_wrap = StylePanelScrollArea(central)
+        self.style_wrap.setFrameShape(QFrame.NoFrame)
+        self.style_wrap.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.style_wrap.setWidget(self.style_panel)
+        self.style_wrap.setMinimumHeight(full // 2)
+        layout.addWidget(self.style_wrap, 1)
 
         self.player_bar = PlayerBar(
             central,
@@ -122,6 +137,11 @@ class App(QMainWindow):
         self.player_bar.set_busy(False)
 
         self.setCentralWidget(central)
+
+        # 窗口最小高度由布局实际需求决定：中栏固定高度 + 风格面板半高 + 其余固定块。
+        # 写死数值会在字号/系统缩放大时低于真实需求，中栏先被裁切而不是面板滚动。
+        need = layout.minimumSize().height() + self.menuBar().sizeHint().height()
+        self.setMinimumSize(_MIN_WIDTH, need)
 
     def _bind_shortcuts(self) -> None:
         QShortcut(QKeySequence("Ctrl+Return"), self, activated=self.on_synthesize)
@@ -170,11 +190,6 @@ class App(QMainWindow):
         self.text_panel.set_sing(checked)
         self._sync_sing_ui()
 
-    def on_sing_from_style_panel(self, checked: bool) -> None:
-        """风格辅助里的「唱歌」复选框被点击。"""
-        self.text_panel.set_sing(checked)
-        self._sync_sing_ui()
-
     def _sync_sing_ui(self) -> None:
         """两处唱歌入口与文本框内容保持一致。
 
@@ -182,7 +197,6 @@ class App(QMainWindow):
         """
         singing = self.text_panel.is_singing()
         self.config_panel.set_sing(singing)
-        self.style_panel.set_sing(singing)
 
     # ================================================================ 合成与播放
 
