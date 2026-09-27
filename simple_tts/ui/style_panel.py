@@ -43,9 +43,19 @@ class StylePanel(QGroupBox):
         layout.setContentsMargins(theme.PAD_L, theme.PAD, theme.PAD_L, theme.PAD)
 
         notebook = QTabWidget(self)
-        notebook.addTab(self._build_opening_page(notebook), "  开头风格  ")
-        notebook.addTab(self._build_inline_page(notebook), "  行内标签  ")
+        opening_page = self._build_opening_page(notebook)
+        inline_page = self._build_inline_page(notebook)
+        notebook.addTab(opening_page, "  开头风格  ")
+        notebook.addTab(inline_page, "  行内标签  ")
         layout.addWidget(notebook)
+
+        # QTabWidget 的 sizeHint / minimumSizeHint 只按「当前页」计算，两个页面的高度需求
+        # 不同（开头风格 7 行按钮，行内标签 4 行），切到较矮的页时面板会跟着缩矮，再切回来
+        # 时较长的页就被裁掉末行。把两页的最小高度统一取最大值，切换标签页不再改变面板高度。
+        pages = (opening_page, inline_page)
+        need = max(page.layout().minimumSize().height() for page in pages)
+        for page in pages:
+            page.setMinimumHeight(need)
 
     # ================================================================ 开头风格
 
