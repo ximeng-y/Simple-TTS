@@ -1,15 +1,15 @@
 """主窗口。
 
 装配顺序：Header -> 中栏（左文本 / 右配置）-> 风格辅助 -> 播放条。
-各 UI 模块之间互不 import，全部通过本类的回调通信 —— 后续换成真实后端时
-只需替换 App.on_synthesize 里的假进度，UI 模块无需改动。
+各 UI 模块之间互不 import，全部通过本类的回调通信：本类负责把界面上的值
+收拢成一次合成请求，再把返回的音频落盘、装载、播放。
 """
 
 from __future__ import annotations
 
 import webbrowser
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDialog,
@@ -21,9 +21,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, catalog
+from . import __version__, catalog, output
 from .player import AudioPlayer
+from .providers import MiMoProvider
 from .state import AppState
+from .synth import SynthesisTask
 from .ui import theme
 from .ui.config_panel import ConfigPanel
 from .ui.header import Header
@@ -39,6 +41,10 @@ _DEFAULT_SIZE = (1100, 880)
 _MIN_WIDTH = 1000
 _RIGHT_COL_W = theme.RIGHT_COL_W
 
+# 播放位置的轮询间隔（毫秒）。MCI 没有回调，只能定时问；
+# 100ms 足够让进度条看起来连续，开销也远小于一次界面重绘。
+_TICK_MS = 100
+
 
 class App(QMainWindow):
     def __init__(self) -> None:
@@ -46,6 +52,11 @@ class App(QMainWindow):
 
         self.state = AppState()
         self.player = AudioPlayer()
+        self.provider = MiMoProvider()
+
+        self._task: SynthesisTask | None = None
+        # 最近一次成功落盘的文件路径；None 表示还没有可试听的文件
+        self._current_file: str | None = None
 
         self.setWindowTitle(_WINDOW_TITLE)
         self.resize(*_DEFAULT_SIZE)
@@ -54,6 +65,10 @@ class App(QMainWindow):
         self._build_layout()
         self._bind_shortcuts()
         self._load_model_into_ui()
+
+        self._tick_timer = QTimer(self)
+        self._tick_timer.setInterval(_TICK_MS)
+        self._tick_timer.timeout.connect(self._on_tick)
 
     # ================================================================ 构建
 
@@ -131,7 +146,6 @@ class App(QMainWindow):
             on_volume=self.on_volume,
         )
         layout.addWidget(self.player_bar)
-        self.player_bar.set_busy(False)
 
         self.setCentralWidget(central)
 
@@ -207,33 +221,118 @@ class App(QMainWindow):
         singing = self.text_panel.is_singing()
         self.config_panel.set_sing(singing)
 
-    # ================================================================ 合成与播放
+    # ================================================================ 合成
 
     def on_synthesize(self) -> None:
-        """触发合成。
+        """触发合成：校验 -> 后台请求 -> 落盘 -> 装载 -> 按设置自动试听。"""
+        if self._task is not None:
+            # 上一次还没回来。按钮此时已禁用，走到这里只可能是快捷键
+            return
 
-        本版本后端尚未接入：只走一遍假进度后复位，不落盘、不弹提示、不播放。
-        接入后把这里的假进度换成 provider.synthesize(...) 即可。
-        """
         self._save_draft()
-        self.player.stop()
-        self.player_bar.set_busy(True)
-        self.player_bar.start_fake_progress(self._on_synthesize_done)
+        draft = self.state.draft()
+        model = self.state.model
+        text = draft.text
 
-    def _on_synthesize_done(self) -> None:
-        self.player_bar.set_busy(False)
+        # 音色设计开启润色时可以不填文本；其余情况空文本没有意义
+        if not text.strip() and not (draft.optimize_preview and model["supports_optimize"]):
+            self._warn("请先填写要合成的文本。")
+            return
+
+        params = {
+            "api_key": self.state.api_key,
+            "model": model["id"],
+            "tone_source": model["tone_source"],
+            "audio_format": self.state.audio_format,
+            "style_prompt": draft.style_prompt,
+            "voice_id": self.config_panel.voice_id,
+            "sample_path": draft.sample_path,
+            "optimize_text_preview": draft.optimize_preview and model["supports_optimize"],
+        }
+
+        self.player.stop()
+        self.player_bar.set_state("synth")
+
+        task = SynthesisTask(self.provider, text, params)
+        task.signals.done.connect(self._on_synthesized)
+        task.signals.failed.connect(self._on_synthesize_failed)
+        self._task = task
+        task.start()
+
+    def _on_synthesized(self, audio: bytes) -> None:
+        """后台线程已拿到音频：落盘并装载，界面回到可用状态。"""
+        self._task = None
+        model = self.state.model
+        draft = self.state.draft()
+
+        try:
+            path = output.save_audio(
+                audio,
+                self.state.output_dir,
+                self.state.filename_pattern,
+                voice_name=self.config_panel.voice_name or model["short"],
+                model_id=model["id"],
+                audio_format=self.state.audio_format,
+            )
+        except OSError as exc:
+            self.player_bar.set_state("idle")
+            self._warn(f"音频保存失败：{exc}")
+            return
+
+        self._current_file = path
+        if not self.player.load(path):
+            self.player_bar.set_state("idle")
+            self._warn(f"已保存到 {path}，但无法播放该音频文件。")
+            return
+
+        self.player.set_volume(self.player_bar.volume_scale.value())
+        self.player_bar.set_state("ready")
+        self.player_bar.set_position(0.0, self.player.duration())
+
+        if self.state.auto_play:
+            self.on_play()
+        else:
+            self._warn(f"已保存到 {path}", title="合成完成", icon=QMessageBox.Information)
+
+    def _on_synthesize_failed(self, message: str) -> None:
+        self._task = None
+        self.player_bar.set_state("idle")
+        self._warn(message, title="合成失败")
+
+    # ================================================================ 播放
 
     def on_play(self) -> None:
+        """从头播放当前文件，并启动位置轮询。"""
+        if not self._current_file:
+            return
         self.player.play()
+        self.player_bar.set_state("playing")
+        if not self._tick_timer.isActive():
+            self._tick_timer.start()
 
     def on_stop(self) -> None:
+        self._tick_timer.stop()
         self.player.stop()
+        self.player_bar.set_state("ready")
+        self.player_bar.set_position(0.0, self.player.duration())
 
     def on_seek(self, _value: int) -> None:
-        self.player.seek(self.player_bar.seek_scale.value())
+        if not self._current_file:
+            return
+        self.player.seek(self.player_bar.playback_ratio() * self.player.duration())
 
     def on_volume(self, value: int) -> None:
         self.player.set_volume(int(value))
+
+    def _on_tick(self) -> None:
+        """播放位置轮询。MCI 不提供结束回调，靠这里发现播放已结束。"""
+        duration = self.player.duration()
+        if not self.player.is_playing():
+            self._tick_timer.stop()
+            self.player_bar.set_state("ready")
+            self.player_bar.set_position(duration, duration)
+            return
+        self.player_bar.set_position(self.player.position(), duration)
 
     # ================================================================ 菜单动作
 
@@ -253,12 +352,26 @@ class App(QMainWindow):
             "关于",
             f"Simple TTS v{__version__}\n\n"
             "轻量级 Windows 桌面文本转语音工具。\n"
-            "当前为前端形态演示版本，后端尚未接入。",
+            f"当前接入 {self.state.provider['name']}，支持预置音色、音色设计与音色复刻。",
         )
+
+    # ================================================================ 内部
+
+    def _warn(self, message: str, title: str = "提示", icon: QMessageBox.Icon = QMessageBox.Warning) -> None:
+        box = QMessageBox(self)
+        box.setIcon(icon)
+        box.setWindowTitle(title)
+        box.setText(message)
+        box.exec()
 
     # ================================================================ 退出
 
     def closeEvent(self, event) -> None:
-        self.player_bar.cancel()
+        if self._task is not None:
+            # 请求阻塞在 socket 上无法中断，只能让它随进程一起结束（线程是 daemon），
+            # 这里先把回调摘掉，避免结果回来时窗口已经在销毁中
+            self._task.cancel()
+            self._task = None
+        self._tick_timer.stop()
         self.player.close()
         super().closeEvent(event)

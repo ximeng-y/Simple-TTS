@@ -4,6 +4,7 @@
 换服务商时新增一个实现类即可，UI 无需改动。
 """
 
-from .base import TTSProvider
+from .base import SynthesisError, TTSProvider
+from .mimo import MiMoProvider
 
-__all__ = ["TTSProvider"]
+__all__ = ["MiMoProvider", "SynthesisError", "TTSProvider"]

@@ -291,12 +291,35 @@ class ConfigPanel(QScrollArea):
         self._set_sing_checked(checked)
 
     @property
-    def selected_voice_name(self) -> str:
-        """当前选中音色的展示名，用于拼默认文件名。"""
-        index = max(self._voice_box.currentIndex(), 0)
-        return catalog.PRESET_VOICES[index]["name"]
+    def voice_name(self) -> str:
+        """当前音色的展示名，用于拼默认文件名。
+
+        三个模型的音色来源不同，取不到合适名字时回落到模型简称：
+        预置音色用下拉里的名字，复刻用样本文件名，音色设计没有具体音色。
+        """
+        tone_source = self._state.model["tone_source"]
+        if tone_source == "preset":
+            return self._current_voice().get("name", "")
+        if tone_source == "clone":
+            path = self._sample_edit.text()
+            return os.path.splitext(os.path.basename(path))[0] if path else ""
+        return ""
+
+    @property
+    def voice_id(self) -> str:
+        """当前选中的预置音色 Voice ID；其它模型下为空。"""
+        if self._state.model["tone_source"] != "preset":
+            return ""
+        return self._current_voice().get("voice_id", "")
 
     # ================================================================ 内部
+
+    def _current_voice(self) -> dict:
+        voice_id = self._voice_box.currentData()
+        for voice in catalog.PRESET_VOICES:
+            if voice["voice_id"] == voice_id:
+                return voice
+        return {}
 
     def _current_format(self) -> str:
         for fmt_id, button in self._format_buttons.items():

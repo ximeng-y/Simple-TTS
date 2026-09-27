@@ -3,8 +3,7 @@
 顶层页序与菜单「设置」中各项一一对应：通用 / 供应商 / API KEY。
 「供应商」页决定当前启用哪一家，「API KEY」页则按供应商分标签各存一份 Key。
 
-本版本仅做前端形态演示，点「确定」只把值写回内存中的 AppState，不落盘；
-重启后回到默认值。
+配置只存在于内存中的 AppState，点「确定」写回后即生效，但不落盘；重启回到默认值。
 """
 
 from __future__ import annotations
@@ -29,7 +28,7 @@ from PySide6.QtWidgets import (
 from .. import catalog
 from . import theme
 
-_NOTE = "本版本仅前端形态演示，配置只保存在内存中，不会写入磁盘。"
+_NOTE = "配置只保存在本次运行的内存中，不会写入磁盘，重启后回到默认值。"
 
 # 顶层页的 key 与标签，页序即菜单「设置」里的展示顺序
 _PAGES = (("general", "  通用  "), ("provider", "  供应商  "), ("api", "  API KEY  "))

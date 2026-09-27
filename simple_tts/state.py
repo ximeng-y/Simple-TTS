@@ -51,7 +51,9 @@ class AppState:
 
     # ---- 输出
     output_dir: str = field(default_factory=_default_output_dir)
-    filename_pattern: str = "{ts}_{voice}.wav"
+    # 扩展名不写进模式：落盘时一律跟随 audio_format，避免模式里的 .wav 与
+    # 实际内容不符。可用变量见 output.build_filename。
+    filename_pattern: str = "{ts}_{voice}"
     audio_format: str = "wav"
     auto_play: bool = True
     keep_history: bool = False

@@ -27,6 +27,7 @@ PROVIDERS = [
         "name": "MIMO",
         "desc": "小米 MiMo 语音合成，OpenAI Chat Completions 风格接口",
         "base_url": "https://api.xiaomimimo.com/v1",
+        "chat_path": "/chat/completions",
         "models": [
             {
                 "id": "mimo-v2.5-tts",
@@ -114,6 +115,9 @@ FORMATS = [
     ("wav", "WAV", "服务端返回成型 WAV 文件，无需自行补写文件头"),
     ("mp3", "MP3", "服务端返回成型 MP3 文件，文件体积更小"),
 ]
+
+# 请求超时（秒）：整段音频一次性返回，长文本耗时较长，给得宽一些。
+REQUEST_TIMEOUT = 120
 
 # ---------------------------------------------------------------- 音色复刻样本
 
