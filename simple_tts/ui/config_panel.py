@@ -53,12 +53,13 @@ class ConfigPanel(QScrollArea):
         self.setFrameShape(QFrame.NoFrame)
 
         root = QWidget()
-        layout = QVBoxLayout(root)
+        layout = QHBoxLayout(root)
         layout.setContentsMargins(theme.PAD_L, theme.PAD, theme.PAD, theme.PAD)
         layout.setSpacing(theme.PAD)
 
+        # 音色与输出左右并排，避免在滚动框内上下堆叠
         layout.addWidget(self._build_voice_section(), 1)
-        layout.addWidget(self._build_output_section())
+        layout.addWidget(self._build_output_section(), 1)
         self.setWidget(root)
 
     # ================================================================ 构建

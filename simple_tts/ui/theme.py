@@ -11,13 +11,14 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QFontDatabase
-from PySide6.QtWidgets import QLabel, QWidget
+from PySide6.QtWidgets import QLabel, QSizePolicy, QWidget
 
 # 间距常量，避免各控件各写各的魔法数字
 PAD = 8
 PAD_L = 12
 GAP = 6
-RIGHT_COL_W = 320
+# 右侧配置区（音色 / 输出 并排），越宽左侧文本区越窄
+RIGHT_COL_W = 440
 
 # 依次尝试，取第一个系统里存在的
 _PREFERRED_FONTS = ("Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", "Tahoma")
@@ -43,11 +44,17 @@ def apply(app) -> None:
 
 
 def hint(parent: QWidget, text: str = "", wrap: bool = False) -> QLabel:
-    """灰色小字说明，对应原 ttk 的 Hint.TLabel。"""
+    """灰色小字说明，对应原 ttk 的 Hint.TLabel。
+
+    换行提示在窄列里可能把单行文本撑得很宽（QLabel 换行前不折行）。
+    水平策略置为 Ignored 后只按可用宽度折行，不参与撑大布局。
+    """
     label = QLabel(text, parent)
     label.setStyleSheet(_HINT_STYLE)
     label.setWordWrap(wrap)
     label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+    if wrap:
+        label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
     return label
 
 
