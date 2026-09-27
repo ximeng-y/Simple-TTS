@@ -70,6 +70,7 @@ class TextPanel(QWidget):
         head = QHBoxLayout()
         head.setSpacing(theme.GAP)
         head.addWidget(theme.title(self, "合成文本"))
+        head.addWidget(theme.hint(self, "在下方填写要让AI读出的音频内容"))
         head.addStretch(1)
 
         self._counter = theme.hint(self, "")
