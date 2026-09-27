@@ -37,10 +37,13 @@ _PAGE_ORDER = ("preset", "design", "clone")
 class ConfigPanel(QScrollArea):
     """参数区，内容超出可用高度时可纵向滚动。
 
-    高度不能只按自身控件的尺寸提示走：QScrollArea 会按「24 行文本高」给高度封顶
-    （本面板内容恰好超过该上限），而里面的换行提示要折行几行，也只有宽度定下来
-    才算得准。这里改成按配置区的名义宽度重算一次内容高度，默认窗口下就与内容等高，
-    不会一开局就滚动；窗口压矮之后才由滚动条接管。
+    高度按内容实算，且始终按「竖直滚动条已经占位」的宽度算：
+    QScrollArea 默认会按「24 行文本高」给高度封顶（本面板内容恰好超过该上限），
+    而内容里的换行提示折几行既要宽度定下来才算得准，又会被滚动条自己改变 ——
+    滚动条一出现内容就窄 14px、多折两行，于是「要不要滚动」变成看滚动条的脸色：
+    同一个高度，压下来放得下、拉上去却放不下，滚动条赖着不走。
+    这里把内容宽度固定成滚动条占位后的那一份（见 __init__），
+    折行与高度提示都不再随滚动条变动，阈值只有一个，两个方向表现一致。
 
     与 App 的约定：
       - on_sing_toggle(checked) 唱歌模式勾选变化时回调，由 App 去改文本框内容
@@ -58,6 +61,8 @@ class ConfigPanel(QScrollArea):
         self.setFrameShape(QFrame.NoFrame)
 
         root = QWidget()
+        # 宽度上限按「滚动条已占位」算，让内容排版不受滚动条来去的影响
+        root.setMaximumWidth(self._content_width)
         layout = QHBoxLayout(root)
         layout.setContentsMargins(theme.PAD_L, theme.PAD, theme.PAD, theme.PAD)
         layout.setSpacing(theme.PAD)
@@ -74,16 +79,26 @@ class ConfigPanel(QScrollArea):
 
         「音色」块的高度随所选模型变化（预置音色四行、音色设计二十来行），
         整块内容的高度也只有在宽度定下来之后才算得准（换行提示折几行看宽度），
-        所以直接拿内容布局在视口宽度下的 heightForWidth，而不是它那份
-        没算折行的尺寸提示。
+        所以直接拿内容布局在内容宽度下的 heightForWidth，
+        而不是它那份没算折行的尺寸提示。
         """
         layout = self.widget().layout()
-        width = self.viewport().width()
-        if width <= 1:
-            # 首帧还没布过局，视口宽度为 0：按配置区宽度留出滚动条的位置估一个
-            width = max(theme.RIGHT_COL_W - self.verticalScrollBar().sizeHint().width(), theme.PAD)
-        height = layout.heightForWidth(width) if layout.hasHeightForWidth() else layout.sizeHint().height()
+        width = self._content_width
+        height = (
+            layout.heightForWidth(width)
+            if layout.hasHeightForWidth()
+            else layout.sizeHint().height()
+        )
         return QSize(theme.RIGHT_COL_W, height)
+
+    @property
+    def _content_width(self) -> int:
+        """内容区宽度：预留出竖直滚动条的位置。
+
+        取值不经过任何会随滚动条存废变化的量（如 viewport().width()），
+        否则「要不要滚动条」的判据就由滚动条自己决定，见类文档。
+        """
+        return max(theme.RIGHT_COL_W - self.verticalScrollBar().sizeHint().width(), theme.PAD)
 
     # ================================================================ 构建
 
