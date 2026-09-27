@@ -395,10 +395,16 @@ class ConfigPanel(QScrollArea):
             self._sample_hint.setStyleSheet("color: #666666;")
             self._sample_hint.setText("尚未选择样本文件")
             return
-        size = os.path.getsize(path) if os.path.exists(path) else 0
-        if size > catalog.MAX_SAMPLE_BYTES:
+        if not os.path.exists(path):
             self._sample_hint.setStyleSheet("color: #b00020;")
-            self._sample_hint.setText(f"样本 {size / 1024 / 1024:.1f}MB，超过 10MB 上限")
+            self._sample_hint.setText("样本文件已不在原位置，请重新选择")
+            return
+        size = os.path.getsize(path)
+        # 上限判的是 Base64 编码后的长度，编码会膨胀约 4/3，换算成原始文件的
+        # 阈值即其 3/4 —— 与 mimo._encode_sample 判的是同一个口径
+        if size > catalog.MAX_SAMPLE_B64_CHARS * 3 // 4:
+            self._sample_hint.setStyleSheet("color: #b00020;")
+            self._sample_hint.setText(f"样本 {size / 1024 / 1024:.1f}MB，编码后超过 10MB 上限")
         else:
             self._sample_hint.setStyleSheet("color: #666666;")
             mime = catalog.sample_mime_for(path)
