@@ -42,6 +42,7 @@ Simple TTS 是一个轻量级的 Windows 桌面文本转语音工具，当前版
 - **配置持久化**：配置存 `userdata/settings.json`（标准库 `json`，临时文件 + `os.replace` 覆写），启动读入、点设置页「确定」与关窗时写出。API Key 不存明文：整份 key 表经 `ctypes` 调 Windows DPAPI（`CryptProtectData`）按当前登录用户加密后以 base64 存入，换 Windows 账户或换机器都读不出来 —— 也无需为此引入第三方库。各模型草稿（用户正在写的正文/描述）不落盘，属会话内容而非配置
 - **线程模型**：合成是阻塞 HTTP 调用，放在 `threading.Thread`（daemon）里执行，结果经 Qt 信号回主线程；线程为 daemon，请求未返回时关窗也能正常退出，`closeEvent` 只摘掉回调
 - **第三方依赖**：运行期依赖 `PySide6-Essentials`（LGPLv3，装在项目内 `.venv/`，不入版本库），开发期另使用 PyInstaller 打包；分发时用 PyInstaller `--onedir` 模式（不要将 Qt 二进制压进单文件，用户需能替换 Qt 二进制是 LGPLv3 的要求），产出目录内附 Qt/PySide6 的许可文件（见 `licenses/`）
+- **许可**：程序自身以 GPL-3.0-or-later 发布，正文在仓库根目录的 `LICENSE`（GitHub 靠根目录这个文件名识别许可，不要挪动或改名）。`licenses/` 只放第三方组件（Qt/PySide6 的 LGPLv3、Python 的 PSF），两者不可混放。打包时根目录的 `LICENSE` 会被拷成发布包内的 `licenses/LICENSE.txt`，让用户在一个目录里找齐全部许可（GPLv3 §4 要求随二进制分发许可正文）
 - **自动更新**：客户端读 `https://github.com/ximeng-y/Simple-TTS/releases/latest/download/latest.json`（GitHub 会 302 到最新**正式**版 release 的同名附件；预发布版不会被 `latest` 选中），不用 `api.github.com` —— 加速代理只转发 `github.com` 的下载链接，且未登录的 API 每小时只给 60 次。清单里带版本号、zip 的文件名/大小/SHA256 与更新说明，下载后按它校验。下载源 = 直连 GitHub（`urllib` 自动读 Windows 系统代理）+ `update_mirrors` 里的加速代理前缀（用法是「前缀 + 完整 GitHub URL」）+ Gitee（接口已留，`catalog.GITEE_REPO` 为空即不启用），检查时**并发**取清单取最快的一个、下载时按快慢顺序逐个退。SHA256 能挡下载被截断或改坏；若清单本身经代理取得，代理可以连清单带 zip 一起换掉 —— 个人工具接受这一边界。更新包解压在 `userdata/update/`，替换由外部 bat 完成（运行中的 exe 与 Qt DLL 被占用，自己换不了自己）：脚本等主进程退出后，对 `_internal/` 做镜像，顶层与其余子目录只覆盖/新增、绝不删除（安装目录里可能有用户自己的文件），`userdata/` 完全不动；替换失败会留一个标记文件，下次启动提示。源码运行时（`启动.bat`）只提示不替换
 
 ### 落盘位置
@@ -78,7 +79,7 @@ userdata/
 
 打包发版**手动进行**，不使用 GitHub Actions。每个 release 只挂两个附件，客户端与打包脚本都按这个约定来：
 
-- `SimpleTTS-{version}-win64.zip`：zip 顶层是一个目录 `SimpleTTS/`，其下是 `SimpleTTS.exe`、`_internal/`、`licenses/`
+- `SimpleTTS-{version}-win64.zip`：zip 顶层是一个目录 `SimpleTTS/`，其下是 `SimpleTTS.exe`、`_internal/`、`licenses/`（含程序自身的 GPL 正文 `LICENSE.txt` 与第三方许可）
 - `latest.json`（UTF-8）：
 
 ```json

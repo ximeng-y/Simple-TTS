@@ -67,13 +67,25 @@ def run_pyinstaller() -> None:
 
 
 def copy_licenses() -> None:
-    """把仓库里的 licenses/ 拷进程序目录 —— LGPLv3 要求许可随二进制分发。"""
+    """把第三方许可与程序自身的 LICENSE 拷进程序目录。
+
+    前者是 LGPLv3 的要求，后者是 GPLv3 §4「随目标代码分发许可正文」的要求，
+    两者都要求许可随二进制分发，缺一不可。
+    """
     source = os.path.join(ROOT, "licenses")
     target = os.path.join(APP_DIR, "licenses")
     if not os.path.isdir(source):
         sys.exit(f"缺少许可文件目录：{source}")
     shutil.rmtree(target, ignore_errors=True)
     shutil.copytree(source, target)
+
+    # 程序自身的 GPL 正文放在仓库根目录（GitHub 靠它识别许可），发布包里统一
+    # 收进 licenses/，用户只在一个目录里就能找齐全部许可文件。
+    own = os.path.join(ROOT, "LICENSE")
+    if not os.path.isfile(own):
+        sys.exit(f"缺少程序自身的许可文件：{own}")
+    shutil.copy2(own, os.path.join(target, "LICENSE.txt"))
+
     print("已拷入许可文件：", ", ".join(sorted(os.listdir(target))))
 
 
