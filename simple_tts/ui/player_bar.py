@@ -91,6 +91,11 @@ class PlayerBar(QWidget):
 
     # ================================================================ 对外
 
+    @property
+    def state(self) -> str:
+        """当前状态。只读——状态一律经 set_state 变更，避免各处自行赋值。"""
+        return self._state
+
     def set_state(self, state: str) -> None:
         """切换播放条状态：synth / idle / ready / playing。"""
         self._state = state

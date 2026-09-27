@@ -251,6 +251,9 @@ class App(QMainWindow):
         }
 
         self.player.stop()
+        # 上一次试听可能还在轮询，一并停掉：合成期间没有播放位置可报，
+        # 若让定时器继续跑，它会把刚设好的 synth 覆盖掉（见 _on_tick 的守卫）
+        self._tick_timer.stop()
         self.player_bar.set_state("synth")
 
         task = SynthesisTask(self.provider, text, params)
@@ -325,10 +328,17 @@ class App(QMainWindow):
         self.player.set_volume(int(value))
 
     def _on_tick(self) -> None:
-        """播放位置轮询。MCI 不提供结束回调，靠这里发现播放已结束。"""
+        """播放位置轮询。MCI 不提供结束回调，靠这里发现播放已结束。
+
+        只在「播放中」才回写结束态：定时器停止前已经排进事件循环的那次 tick
+        仍会送达，而那时状态可能已经是 synth（合成前会 player.stop()），
+        回写 ready 会把合成态顶掉、控件提前放开。
+        """
         duration = self.player.duration()
         if not self.player.is_playing():
             self._tick_timer.stop()
+            if self.player_bar.state != "playing":
+                return
             self.player_bar.set_state("ready")
             self.player_bar.set_position(duration, duration)
             return
