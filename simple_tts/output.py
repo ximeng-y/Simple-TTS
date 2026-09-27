@@ -19,7 +19,7 @@
 里 `.5-tts` 这类带点的名字。
 
 同名文件默认自动改名而不覆盖；save_audio 的 on_conflict 参数可接管这一决策
-（见该函数的说明）。
+（见该函数的说明）。copy_audio 拷的是已经落盘的文件，名字已定，只做改名去重。
 """
 
 from __future__ import annotations

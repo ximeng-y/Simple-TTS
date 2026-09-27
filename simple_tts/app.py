@@ -273,7 +273,9 @@ class App(QMainWindow):
         model = self.state.model
         text = draft.text
 
-        # 音色设计开启润色时可以不填文本；其余情况空文本没有意义
+        # 音色设计开启润色时可以不填文本；其余情况空文本没有意义。
+        # 「文本智能润色」已从前端撤下，draft.optimize_preview 恒为 False，
+        # 这半句因此暂时不会生效 —— 开关放回来时它自动恢复作用，不必改这里。
         if not text.strip() and not (draft.optimize_preview and model["supports_optimize"]):
             self._warn("请先填写要合成的文本。")
             return
