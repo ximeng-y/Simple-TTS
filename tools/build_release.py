@@ -61,9 +61,9 @@ def run_pyinstaller() -> None:
         "--name",
         "SimpleTTS",
         "--icon",
-        "icon.ico",
+        "icons/icon.ico",
         "--add-data",
-        "icon.png;.",
+        "icons/icon.png;icons",
         "main.py",
     ]
     print("$", " ".join(cmd))

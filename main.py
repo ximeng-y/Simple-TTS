@@ -7,10 +7,10 @@ import sys
 
 
 def _icon_path() -> str:
-    """图标文件路径：打包后随 datas 进 _internal/，源码运行时在仓库根。"""
+    """图标文件路径：打包后随 datas 进 _internal/icons/，源码运行时在仓库根 icons/。"""
     if getattr(sys, "frozen", False):
-        return os.path.join(sys._MEIPASS, "icon.png")
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
+        return os.path.join(sys._MEIPASS, "icons", "icon.png")
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons", "icon.png")
 
 
 def main() -> int:
