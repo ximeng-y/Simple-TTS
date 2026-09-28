@@ -60,6 +60,10 @@ def run_pyinstaller() -> None:
         "--windowed",
         "--name",
         "SimpleTTS",
+        "--icon",
+        "icon.ico",
+        "--add-data",
+        "icon.png;.",
         "main.py",
     ]
     print("$", " ".join(cmd))
