@@ -75,8 +75,15 @@ userdata/
 | Python 运行时 | PSF License Agreement |
 | [PyInstaller](https://pyinstaller.org/)（仅开发期打包用） | GPL-2.0-or-later，带打包专有程序的例外条款 |
 
-程序以 `--onedir` 目录形式分发（非单文件打包），Qt 的动态链接库位于程序目录的 `_internal\PySide6\`，可以直接替换为 ABI 兼容的其他版本。全部许可正文随发布包分发，位于其 `licenses/` 目录。
+程序以 `--onedir` 目录形式分发（非单文件打包），Qt 的动态链接库位于程序目录的 `_internal\PySide6\`，可以直接替换为 ABI 兼容的其他版本。全部许可正文随发布包分发，位于其 `licenses/` 目录，其中 `licenses/LICENSE.txt` 即本程序自身的 GPLv3 正文。
 
 ## 许可
 
-本项目以 [GPLv3](LICENSE) 协议开源。
+本项目以 [GPL-3.0-or-later](LICENSE) 协议开源。
+
+```
+Copyright (C) 2026  ximeng
+```
+
+根目录的 `LICENSE` 是 GPLv3 许可正文的逐字副本（GPLv3 §4 要求随程序分发该正文），
+故版权声明写在这里而不写进该文件，以免影响 GitHub 对许可的自动识别。
